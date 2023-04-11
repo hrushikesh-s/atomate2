@@ -7,9 +7,11 @@ INCAR:
   ENCUT: 680
   GGA: PS
   IBRION: 2
-  ISIF: 3
+  # IBRION: -1 # This is not getting written in the INCAR file
+  ISIF: 3  # This is not getting written in the INCAR file
   ISPIN: 2
   ISMEAR: 0
+  # KSPACING: 0.44
   LORBIT: 11
   LASPH: True
   LDAU: true
@@ -72,7 +74,7 @@ INCAR:
       V: 3.25
       W: 6.2
   LDAUPRINT: 1
-  LREAL: False
+  LREAL: Auto
   LMIXTAU: True
   LCHARG: True  # Output CHGCAR
   LAECHG: True  # Output AECCAR
@@ -115,8 +117,11 @@ INCAR:
   PREC: Accurate
   SIGMA: 0.05
 KPOINTS:
-  reciprocal_density: 64
-  reciprocal_density_metal: 200
+  # reciprocal_density: 10 # Results in 1 1 1
+  reciprocal_density: 64 # Results in 1 1 1
+  # reciprocal_density: 500 # Results in 3 3 3
+  # reciprocal_density: 1000 # Results in 3 3 3
+  # kpoints_type: Monkhorst # This doesn't change the kpoints_type, the tag isn't correct
 POTCAR_FUNCTIONAL: PBE_54
 POTCAR:
   Ac: Ac
