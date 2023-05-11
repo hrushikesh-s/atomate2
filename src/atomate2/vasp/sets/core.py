@@ -106,15 +106,36 @@ class TightRelaxSetGenerator(VaspInputGenerator):
             A dictionary of updates to apply.
         """
         return {
-            "IBRION": 2,
-            "ISIF": 3,
-            "ENCUT": 700,
-            "EDIFF": 1e-7,
-            "LAECHG": False,
-            "EDIFFG": -0.001,
-            "LREAL": False,
-            "NSW": 99,
-            "LCHARG": False,
+            # "IBRION": 2,
+            # "ISIF": 3,
+            # "ENCUT": 700,
+            # "EDIFF": 1e-7,
+            # "LAECHG": False,
+            # "EDIFFG": -0.001,
+            # "LREAL": False,
+            # "NSW": 99,
+            # "LCHARG": False,
+
+            "ADDGRID": True,
+            'ALGO': "Fast",
+            'EDIFF': 1e-08,
+            'EDIFFG': -0.0005,
+            'ENCUT': 600,
+            'IBRION': 2,
+            'ISIF': 3,
+            'ISMEAR': 0,
+            'ISPIN': 2,
+            'LAECHG': False,
+            'LASPH': True,
+            'LCHARG': False,
+            'LORBIT': 11,
+            'LREAL': False,
+            'LWAVE': False,
+            # 'MAGMOM': 2*0.6,
+            'NELM': 100,
+            'NSW': 99,
+            'PREC': "Accurate",
+            'SIGMA': 0.1
         }
 
 
@@ -972,44 +993,32 @@ class LatticeDynamicsRelaxSetGenerator(VaspInputGenerator):
             A dictionary of updates to apply.
         """
         return {
-            "LAECHG": False,
+            "ADDGRID": True,
+            'ALGO': "Fast",
+            'EDIFF': 1e-08,
+            'EDIFFG': -0.0005,
             'ENCUT': 600,
-            'ADDGRID': True,
-            'EDIFF': 1e-8,
-            'EDIFFG': -5e-4,
-            'PREC': 'Accurate',
-            "LREAL": False,
-            'LASPH': True,
-            'ISPIN': 2,
+            'IBRION': 2,
+            'ISIF': 3,
             'ISMEAR': 0,
-            'SIGMA': 0.1,
+            'ISPIN': 2,
+            'LAECHG': False,
+            'LASPH': True,
             'LCHARG': False,
-            'LWAVE': False
+            'LORBIT': 11,
+            'LREAL': False,
+            'LWAVE': False,
+            'MAGMOM': 2*0.6,
+            'NELM': 100,
+            'NSW': 99,
+            'PREC': "Accurate",
+            'SIGMA': 0.1
         }
-
-
 
 
 @dataclass
 class MPStaticSetGenerator(VaspInputGenerator):
-    """
-    Class to generate MP static input sets.
-
-    Parameters
-    ----------
-    lepsilon
-        Whether to set LEPSILON (used for calculating the high-frequency dielectric
-        tensor).
-    lcalcpol
-        Whether to set LCALCPOL (used for calculating the electronic contribution to
-        the polarization)
-    **kwargs
-        Other keyword arguments that will be passed to :obj:`VaspInputGenerator`.
-    """
-
-    lepsilon: bool = False
-    lcalcpol: bool = False
-    # user_potcar_functional: str = 'PBE_52'
+    """Class to generate tight VASP relaxation input sets."""
 
     def get_incar_updates(
         self,
@@ -1020,7 +1029,7 @@ class MPStaticSetGenerator(VaspInputGenerator):
         outcar: Outcar = None,
     ) -> dict:
         """
-        Get updates to the INCAR for a static VASP job.
+        Get updates to the INCAR for lattice dynamics's relaxation job.
 
         Parameters
         ----------
@@ -1040,52 +1049,30 @@ class MPStaticSetGenerator(VaspInputGenerator):
         dict
             A dictionary of updates to apply.
         """
-        # updates = {
-        #     "NSW": 0,
-        #     "ISMEAR": -5,
-        #     "LCHARG": True,
-        #     "LORBIT": 11,
-        #     "LREAL": False,
-        #     "IBRION": -1,
-        #     "LAECHG": True,
-        #     "LVHAR": True,
-        #     "LWAVE": False,
-        #     "ALGO": "Normal",
-        # }
-        updates = {
-            # # 'ALGO': "Normal",
-            # 'ALGO': "Fast",
-            # 'EDIFF': 0.0256,
-            # 'ENCUT': 520,
-            # # 'ENCUT': 200,
-            # 'GGA': "PS",
-            # # 'GGA': "CA",
-            # 'IBRION': -1,
-            # 'ISIF': 3,
-            # 'ISMEAR': 0, # changed from -5 to 0
-            # 'ISPIN': 2,
-            # 'LAECHG': False,
-            # 'LASPH': False,
-            # 'LCHARG': False,
-            # 'LORBIT': 11,
-            # 'LREAL': False,
-            # 'LVHAR': True,
-            # 'LWAVE': False,
-            # # 'MAGMOM': 512*0.6,
-            # 'NELM': 100,
-            # 'NSW': 0,
-            # 'PREC': "Accurate",
-            'SIGMA': 0.05
+        return {
+            'ADDGRID': True,
+            'ALGO': 'Normal',
+            'EDIFF': 1e-06,
+            # 'EDIFF': 1e-01,
+            # 'EDIFF': 1e01,
+            'ENCUT': 600,
+            'GGA': 'PS',
+            'IBRION': -1,
+            'ISIF': 3,
+            'ISMEAR': 0,
+            'ISPIN': 2,
+            'LAECHG': False,
+            'LASPH': True,
+            'LCHARG': False,
+            'LORBIT': 11,
+            'LREAL': 'Auto',
+            'LVHAR': False,
+            'LVTOT': False,
+            'LWAVE': False,
+            # 'MAGMOM': 625*0.6,
+            # 'NCORE': 6,
+            'NELM': 100,
+            'NSW': 0,
+            'PREC': 'Accurate',
+            'SIGMA': 0.1
         }
-
-        kpoints_dict = {'reciprocal_density':5000}
-        
-        if self.lepsilon:
-            # LPEAD=T: numerical evaluation of overlap integral prevents LRF_COMMUTATOR
-            # errors and can lead to better expt. agreement but produces slightly
-            # different results
-            updates.update({"IBRION": 8, "LEPSILON": True, "LPEAD": True, "NSW": 1})
-
-        if self.lcalcpol:
-            updates["LCALCPOL"] = True
-        return updates

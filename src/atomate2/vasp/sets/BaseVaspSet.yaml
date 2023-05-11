@@ -1,87 +1,88 @@
 # Default VASP settings for atomate2 calculations.
 INCAR:
   ALGO: Fast
-  EDIFF: 1.0e-05
-  EDIFFG: -0.02
-  ENAUG: 1360
-  ENCUT: 680
-  GGA: PS
-  IBRION: 2
-  # IBRION: -1 # This is not getting written in the INCAR file
-  ISIF: 3  # This is not getting written in the INCAR file
-  ISPIN: 2
-  ISMEAR: 0
-  # KSPACING: 0.44
-  LORBIT: 11
-  LASPH: True
-  LDAU: true
-  LDAUJ:
-    F:
-      Co: 0
-      Cr: 0
-      Fe: 0
-      Mn: 0
-      Mo: 0
-      Ni: 0
-      V: 0
-      W: 0
-    O:
-      Co: 0
-      Cr: 0
-      Fe: 0
-      Mn: 0
-      Mo: 0
-      Ni: 0
-      V: 0
-      W: 0
-  LDAUL:
-    F:
-      Co: 2
-      Cr: 2
-      Fe: 2
-      Mn: 2
-      Mo: 2
-      Ni: 2
-      V: 2
-      W: 2
-    O:
-      Co: 2
-      Cr: 2
-      Fe: 2
-      Mn: 2
-      Mo: 2
-      Ni: 2
-      V: 2
-      W: 2
-  LDAUTYPE: 2
-  LDAUU:
-    F:
-      Co: 3.32
-      Cr: 3.7
-      Fe: 5.3
-      Mn: 3.9
-      Mo: 4.38
-      Ni: 6.2
-      V: 3.25
-      W: 6.2
-    O:
-      Co: 3.32
-      Cr: 3.7
-      Fe: 5.3
-      Mn: 3.9
-      Mo: 4.38
-      Ni: 6.2
-      V: 3.25
-      W: 6.2
-  LDAUPRINT: 1
-  LREAL: Auto
-  LMIXTAU: True
-  LCHARG: True  # Output CHGCAR
-  LAECHG: True  # Output AECCAR
-  LELF: False  # Don't output ELFCAR by default as it breaks KPAR
-  LWAVE: False # Don't output WAVECAR
-  LVTOT: True # Output LOCPOT
+  # EDIFF: 1.0e-05
+  # EDIFFG: -0.02
+  # ENAUG: 1360
+  # ENCUT: 680
+  # GGA: PS
+  # IBRION: 2
+  # # IBRION: -1 # This is not getting written in the INCAR file
+  # ISIF: 3  # This is not getting written in the INCAR file
+  # ISPIN: 2
+  # ISMEAR: 0
+  # # KSPACING: 0.44
+  # LORBIT: 11
+  # LASPH: True
+  # LDAU: true
+  # LDAUJ:
+  #   F:
+  #     Co: 0
+  #     Cr: 0
+  #     Fe: 0
+  #     Mn: 0
+  #     Mo: 0
+  #     Ni: 0
+  #     V: 0
+  #     W: 0
+  #   O:
+  #     Co: 0
+  #     Cr: 0
+  #     Fe: 0
+  #     Mn: 0
+  #     Mo: 0
+  #     Ni: 0
+  #     V: 0
+  #     W: 0
+  # LDAUL:
+  #   F:
+  #     Co: 2
+  #     Cr: 2
+  #     Fe: 2
+  #     Mn: 2
+  #     Mo: 2
+  #     Ni: 2
+  #     V: 2
+  #     W: 2
+  #   O:
+  #     Co: 2
+  #     Cr: 2
+  #     Fe: 2
+  #     Mn: 2
+  #     Mo: 2
+  #     Ni: 2
+  #     V: 2
+  #     W: 2
+  # LDAUTYPE: 2
+  # LDAUU:
+  #   F:
+  #     Co: 3.32
+  #     Cr: 3.7
+  #     Fe: 5.3
+  #     Mn: 3.9
+  #     Mo: 4.38
+  #     Ni: 6.2
+  #     V: 3.25
+  #     W: 6.2
+  #   O:
+  #     Co: 3.32
+  #     Cr: 3.7
+  #     Fe: 5.3
+  #     Mn: 3.9
+  #     Mo: 4.38
+  #     Ni: 6.2
+  #     V: 3.25
+  #     W: 6.2
+  # LDAUPRINT: 1
+  # LREAL: Auto
+  # LMIXTAU: True
+  # LCHARG: True  # Output CHGCAR
+  # LAECHG: True  # Output AECCAR
+  # LELF: False  # Don't output ELFCAR by default as it breaks KPAR
+  # LWAVE: False # Don't output WAVECAR
+  # LVTOT: True # Output LOCPOT
   MAGMOM:
+    Ba: 0.6 # Added by me
     Ce: 5
     Ce3+: 1
     Co: 0.6
@@ -112,17 +113,18 @@ INCAR:
     V: 5
     W: 5
     Yb3+: 1
-  NELM: 200
-  NSW: 99
-  PREC: Accurate
-  SIGMA: 0.05
+  # NELM: 200
+  # NSW: 99
+  # PREC: Accurate
+  # SIGMA: 0.05
 KPOINTS:
   # reciprocal_density: 10 # Results in 1 1 1
   reciprocal_density: 64 # Results in 1 1 1
   # reciprocal_density: 500 # Results in 3 3 3
   # reciprocal_density: 1000 # Results in 3 3 3
   # kpoints_type: Monkhorst # This doesn't change the kpoints_type, the tag isn't correct
-POTCAR_FUNCTIONAL: PBE_54
+# POTCAR_FUNCTIONAL: PBE_54
+POTCAR_FUNCTIONAL: PBE
 POTCAR:
   Ac: Ac
   Ag: Ag
