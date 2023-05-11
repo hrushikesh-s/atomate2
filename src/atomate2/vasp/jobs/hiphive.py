@@ -1,6 +1,8 @@
 import math
 import numpy as np
 import warnings
+import json
+import os
 
 from typing import Dict, List, Optional, Union
 from jobflow import job
@@ -17,6 +19,8 @@ from pymatgen.io.vasp.sets import MPStaticSet, VaspInputSet
 # from atomate.utils.utils import get_logger
 
 from atomate2.utils.log import initialize_logger
+
+from fireworks import FiretaskBase, FWAction, explicit_serialize
 
 
 # logger = initialize_logger(__name__)
@@ -66,7 +70,11 @@ def struct_to_supercell(
     if supercell_matrix_kwargs is not None:
         q = supercell_matrix_kwargs
     else: 
-        q = [[4, 0, 0],[0, 4, 0],[0, 0, 4]]      
+        # q = [[5, 0, 0],[0, 5, 0],[0, 0, 5]]   
+        q = [[2, 0, 0],[0, 2, 0],[0, 0, 2]]      
+    
+    
+    print("Everything's fine till this step.")
 
     # Convert to ASE atoms
     atoms = AseAtomsAdaptor.get_atoms(structure)
@@ -103,8 +111,8 @@ def get_rattled_structures(
     Returns:
         structures_pymatgen ([Structure]): list of Structures
     """
-    alat = 4.2564840000000004
-    n_structures = 5
+    alat = 3.215
+    n_structures = 2
     rattle_std = 0.01
     min_distance = 0.4 * alat
 
@@ -118,6 +126,9 @@ def get_rattled_structures(
         structure_i = AseAtomsAdaptor.get_structure(atoms)
         structures_pymatgen.append(structure_i)
 
+    for i in range(len(structures_pymatgen)):
+            structures_pymatgen[i].to(f"POSCAR_{i}", "poscar")    
+
     return structures_pymatgen
 
 
@@ -126,6 +137,7 @@ def run_static_calculations(
     rattled_structures: list[Structure],
     prev_vasp_dir: Union[str, Path, None] = None,
     MPstatic_maker: BaseVaspMaker = field(default_factory=MPStaticMaker),
+    # MPstatic_maker: BaseVaspMaker = None,
     # static_maker: BaseVaspMaker = field(default_factory=StaticMaker)
 ):
     """
@@ -146,7 +158,11 @@ def run_static_calculations(
     """
 
     all_jobs = []
-    all_jobs_output = []
+    # all_jobs_output = []
+    outputs: dict[str, list] = {
+        "forces": [],
+        # "forces": np.array([]),
+    }
     
     for i, structure in enumerate(rattled_structures):
             # Load the atoms object from a file or create it manually
@@ -155,31 +171,47 @@ def run_static_calculations(
             # static = static_maker.make(structure, prev_vasp_dir=prev_vasp_dir)
             static.name += " {}".format(i)
             all_jobs.append(static)
-            all_jobs_output.append(static.output)
+            # all_jobs_output.append(static.output)
+            outputs["forces"].append(static.output.output.forces)
+            # outputs["forces"] = np.append(outputs["forces"], [static.output.output.forces], axis=0)
 
 
-    static_flow = Flow(jobs=all_jobs, output=all_jobs_output)
+    # static_flow = Flow(jobs=all_jobs, output=all_jobs_output)
+    static_flow = Flow(jobs=all_jobs, output=outputs)
     static_flow.name += " 999"
 
     return Response(replace=static_flow)
 
 @job
 def collect_perturbed_structures(
+# def json_saver_RunHiPhive(
      structure: Structure,
      supercell: Structure,
      supercell_matrix: list[list[int]],
-     rattled_structures: list[Structure]
+     rattled_structures: list[Structure],
+     forces: list[list[float]],
+    #  perturbed_tasks: int
     ):
     """
-    Generate a supercell from a structure.
+    Aggregate the structures and forces of perturbed supercells.
     Args:
         structure (Structure): input structure
         supercell (Structure): supercell structure
         supercell_matrix (list[list[int]]): supercell matrix
         rattled_structures (list[Structure]): list of Structures
+        perturbed_tasks (int): number of perturbed tasks
     Returns:
         None
     """
+
+    # results = perturbed_tasks
+
+    # if len(results) == 0:
+    #         # can happen if all parents fizzled
+    #         raise RuntimeError("No perturbed tasks found in firework spec")
+    
+    # # logger.info("Found {} perturbed structures".format(len(results)))
+
 
     structure_data = {
             "structure": structure,
@@ -188,6 +220,31 @@ def collect_perturbed_structures(
         }
 
     dumpfn(rattled_structures, "perturbed_structures.json") 
+    dumpfn(forces, "perturbed_forces.json")
     dumpfn(structure_data, "structure_data.json")
+
+    all_structures = loadfn("perturbed_structures.json")
+    all_forces = loadfn("perturbed_forces.json")
+    structure_data = loadfn("structure_data.json")
+
+    # Convert list of lists to numpy array
+    all_forces = np.array(all_forces['forces'])   
+
+    # Create the desired dictionary format
+    output = {
+        "@module": "numpy",
+        "@class": "array",
+        "dtype": str(all_forces.dtype),
+        "data": all_forces.tolist()
+    }
+
+    # Save the data as a JSON file
+    with open("perturbed_forces_new.json", "w") as f:
+        json.dump(output, f)    
     
-    return None
+    all_forces = loadfn("perturbed_forces_new.json")
+
+    current_dir = os.getcwd()   
+    
+    return [all_structures, all_forces, structure_data, current_dir]
+    # return all_structures, all_forces, structure_data
