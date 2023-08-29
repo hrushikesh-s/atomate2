@@ -46,15 +46,12 @@ from atomate2.vasp.jobs.core import (
 from atomate2.vasp.files import copy_non_vasp_outputs
 
 ## Fireworks packages
-from fireworks import FiretaskBase, FWAction, explicit_serialize
+from fireworks import explicit_serialize
 
 ## ASE packages
 import ase
 from ase.cell import Cell
-from ase.io import read
 from ase.atoms import Atoms
-from ase.build import find_optimal_cell_shape
-from ase.build import make_supercell
 from ase import atoms
 
 ## Hiphive packages
@@ -62,9 +59,9 @@ from hiphive.structure_generation import generate_mc_rattled_structures
 from hiphive.structure_generation.random_displacement import generate_displaced_structures
 from hiphive import ForceConstants, ClusterSpace
 from hiphive.utilities import get_displacements
-from hiphive.cutoffs import is_cutoff_allowed, estimate_maximum_cutoff
+from hiphive.cutoffs import estimate_maximum_cutoff
 from hiphive.renormalization import Renormalization
-from hiphive.run_tools import _clean_data, free_energy_correction, construct_fit_data
+from hiphive.run_tools import free_energy_correction
 
 ## Phonopy & Phono3py
 from phonopy import Phonopy
@@ -78,7 +75,7 @@ T_RENORM = [1500] #[i*100 for i in range(0,16)] # Temperature at which renormali
 # If renormalization is performed, T_RENORM overrides T_KLAT for lattice thermal conductivity
 # T_KLAT = {"t_min":100,"t_max":1500,"t_step":100} #[i*100 for i in range(0,11)]
 T_KLAT = 300 #[i*100 for i in range(0,11)]
-T_THERMAL_CONDUCTIVITY = [0, 100, 200, 300]#[i*100 for i in range(0,16)]
+T_THERMAL_CONDUCTIVITY = [0, 100, 200, 300 ]#[i*100 for i in range(0,16)]
 IMAGINARY_TOL = 0.025  # in THz
 FIT_METHOD = "rfe" 
 
@@ -397,8 +394,9 @@ def quality_control_job(
     jobs = []
     outputs = []
 
-    my_custom_set = MPStaticSetGenerator(user_incar_settings={"ISMEAR": 1})
-    MPstatic_maker = MPStaticMaker(input_set_generator=my_custom_set)
+    # my_custom_set = MPStaticSetGenerator(user_incar_settings={"ISMEAR": 1})
+    # MPstatic_maker = MPStaticMaker(input_set_generator=my_custom_set)
+    MPstatic_maker: BaseVaspMaker = field(default_factory=StaticMaker)
 
     ##### 1. Generates supercell, performs fixed displ rattling and runs static calculations
     vasp_static_calcs = run_static_calculations(
@@ -477,7 +475,7 @@ def quality_control_job(
 
 
 @job
-@explicit_serialize
+# @explicit_serialize
 def run_hiphive(
     cutoffs: Optional[list[list]] = None,
     fit_method: str = None,
@@ -810,6 +808,8 @@ def fit_force_constants(
     logger.info("Finished fitting force constants.")
 
     # print(f'all_cutoffs={all_cutoffs}')
+
+
     # ### Without Joblib's parallellization
     # for i, cutoffs in enumerate(all_cutoffs):
         
@@ -1085,7 +1085,7 @@ def thermal_expansion(
 
 
 @job    
-@explicit_serialize
+# @explicit_serialize
 # class RunShengBTE(FiretaskBase):
 def run_shengbte(
     shengbte_cmd,
@@ -1217,7 +1217,7 @@ def run_shengbte(
 
 
 @job
-@explicit_serialize
+# @explicit_serialize
 def run_fc_to_pdos(
     renormalized: Optional[list[list]] = None,
     renorm_temperature: str = None,
@@ -1334,7 +1334,7 @@ def _get_fc_fsid(structure, supercell_matrix, fcs, mesh_density):
 
 
 @job
-@explicit_serialize
+# @explicit_serialize
 # class RunHiPhiveRenorm(FiretaskBase):
 def run_hiphive_renormalization(
     temperature: float,
@@ -1540,7 +1540,7 @@ def setup_TE_iter(cs,cutoffs,parent_structure,param,temperatures,dLfrac):
 
 
 @job    
-@explicit_serialize    
+# @explicit_serialize    
 def run_lattice_thermal_conductivity(
     shengbte_cmd: str,
     prev_dir_hiphive: str,
