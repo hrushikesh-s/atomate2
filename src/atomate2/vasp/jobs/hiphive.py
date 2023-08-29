@@ -13,6 +13,8 @@ from pathlib import Path
 from itertools import product
 from typing import Dict, List, Tuple, Optional
 from copy import copy
+import logging
+logger = logging.getLogger(__name__)
 
 ## Joblib parallelization
 from joblib import Parallel, delayed
@@ -35,27 +37,12 @@ from pymatgen.io.phonopy import (
 
 
 ## Atomate2 packages
-# from atomate2.utils.log import initialize_logger
-# logger = initialize_logger(__name__)
-import logging
-logger = logging.getLogger(__name__)
 # from atomate2.vasp.sets.core import MPStaticSetGenerator
 from atomate2.vasp.jobs.base import BaseVaspMaker
 from atomate2.vasp.jobs.core import (
     RelaxMaker,
     # MPStaticMaker,
     StaticMaker)
-# from atomate2.vasp.analysis.lattice_dynamics_4 import (
-#     # CollectPerturbedStructures,
-#     # ForceConstantsToDb,
-#     RunHiPhive,
-#     RenormalizationFW,
-#     # RunHiPhiveRenorm,
-#     RunShengBTE,
-#     # ShengBTEToDb,
-#     # LatticeThermalConductivity,
-#     RunPhono3py
-#     )
 from atomate2.vasp.files import copy_non_vasp_outputs
 
 ## Fireworks packages
@@ -85,18 +72,12 @@ from phono3py.phonon3.gruneisen import Gruneisen
 import phonopy as phpy
 from phonopy.structure.atoms import PhonopyAtoms
 
-# Temperature for straight-up phonopy calculation of thermodynamic properties (free energy etc.)
-T_QHA = [i*100 for i in range(21)]
-# Temperature at which renormalization is to be performed
-# T_RENORM = [0,50,100,200,300,500,700,1000,1500]#[i*100 for i in range(0,16)]
-# T_RENORM = [0,300, 700, 1000, 1500]#[i*100 for i in range(0,16)]
-T_RENORM = [1500]#[i*100 for i in range(0,16)]
-# T_RENORM = [0,100, 200, 300, 400, 500, 600, 700, 800, 900, 1000]#[i*100 for i in range(0,16)]
+T_QHA = [i*100 for i in range(21)] # Temperature for straight-up phonopy calculation of thermodynamic properties (free energy etc.)
+T_RENORM = [1500] #[i*100 for i in range(0,16)] # Temperature at which renormalization is to be performed
 # Temperature at which lattice thermal conductivity is calculated
 # If renormalization is performed, T_RENORM overrides T_KLAT for lattice thermal conductivity
 # T_KLAT = {"t_min":100,"t_max":1500,"t_step":100} #[i*100 for i in range(0,11)]
 T_KLAT = 300 #[i*100 for i in range(0,11)]
-# T_THERMAL_CONDUCTIVITY = [0, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000]#[i*100 for i in range(0,16)]
 T_THERMAL_CONDUCTIVITY = [0, 100, 200, 300]#[i*100 for i in range(0,16)]
 IMAGINARY_TOL = 0.025  # in THz
 FIT_METHOD = "rfe" 
@@ -110,12 +91,12 @@ __all__ = [
     "struct_to_supercell",
     "get_rattled_structures",
     "run_static_calculations",
-    "QualityControl",
-    "RunHiPhive",
-    "RunShengBTE",
-    "RunFCtoPDOS",
-    "RenormalizationFW",
-    "LatticeThermalConductivityFW"
+    "quality_control",
+    "run_hiphive",
+    "run_shengbte",
+    "run_fc_to_pdos",
+    "run_hiphive_renormalization",
+    "run_lattice_thermal_conductivity",
 
 ]
 
@@ -363,7 +344,7 @@ def collect_perturbed_structures(
 
 
 @job
-def QualityControl(
+def quality_control(
     rmse_test: float,
     n_structures: int,
     rattle_std: List[float],
@@ -379,7 +360,7 @@ def QualityControl(
     supercell_matrix_kwargs: List[List[int]]
 ):
      if rmse_test > 0.010:
-        return Response(addition=QualityControlJob(    
+        return Response(addition=quality_control_job(    
                 rmse_test,
                 n_structures,
                 rattle_std,
@@ -398,7 +379,7 @@ def QualityControl(
         return None
 
 @job
-def QualityControlJob(
+def quality_control_job(
                 rmse_test,
                 n_structures: int,
                 rattle_std: List[float],
@@ -447,7 +428,7 @@ def QualityControlJob(
     json_saver.metadata.update({"tag": [f"json_saver_{loop}", f"nConfigsPerStd={n_structures}", f"rattleStds={rattle_std}", f"dispCut={disp_cut}", f"supercell_matrix_kwargs={supercell_matrix_kwargs}", f"loop={loop}"]})
 
     ##### 3. Hiphive Fitting of FCPs upto 4th order
-    fw_fit_force_constant = RunHiPhive(
+    fw_fit_force_constant = run_hiphive(
         fit_method = fit_method,
         disp_cut = disp_cut,
         bulk_modulus = bulk_modulus,
@@ -466,7 +447,7 @@ def QualityControlJob(
     loop+=1
     n_structures+=1
     # prev_dir_json_saver="/pscratch/sd/h/hrushi99/atomate2/InAs/block_2023-06-16-04-09-51-792824/launcher_2023-06-23-23-58-57-102993/launcher_2023-06-23-23-59-34-157381"
-    error_check_job = QualityControl(
+    error_check_job = quality_control(
         rmse_test = fw_fit_force_constant.output[5],
         n_structures = n_structures,
         rattle_std = rattle_std,
@@ -489,7 +470,7 @@ def QualityControlJob(
 
     flow = Flow(jobs=jobs, output=outputs)
     
-    QualityControlJob.name = f"QualityControlJob {loop}"
+    quality_control_job.name = f"quality_control_job {loop}"
     
     return Response(addition=flow)    
 
@@ -497,7 +478,7 @@ def QualityControlJob(
 
 @job
 @explicit_serialize
-def RunHiPhive(
+def run_hiphive(
     cutoffs: Optional[list[list]] = None,
     fit_method: str = None,
     disp_cut: float = None,
@@ -1103,12 +1084,10 @@ def thermal_expansion(
 
 
 
-
-
 @job    
 @explicit_serialize
 # class RunShengBTE(FiretaskBase):
-def RunShengBTE(
+def run_shengbte(
     shengbte_cmd,
     renormalized,
     temperature,
@@ -1237,10 +1216,9 @@ def RunShengBTE(
 
 
 
-
 @job
 @explicit_serialize
-def RunFCtoPDOS(
+def run_fc_to_pdos(
     renormalized: Optional[list[list]] = None,
     renorm_temperature: str = None,
     mesh_density: float = None,
@@ -1270,9 +1248,8 @@ def RunFCtoPDOS(
     """
 
     copy_non_vasp_outputs(prev_dir_json_saver)
-    print(f"loop = {loop}")
-    # db_file = env_chk(self.get("db_file"), fw_spec)
-    # mmdb = VaspCalcDb.from_db_file(db_file, admin=True)
+    logger.info(f"loop = {loop}")
+
     renormalized = renormalized if renormalized else False
     renorm_temperature = renorm_temperature if renorm_temperature else None
     mesh_density = mesh_density if mesh_density else 100.0
@@ -1292,32 +1269,6 @@ def RunFCtoPDOS(
         uniform_bs, lm_bs, dos = _get_fc_fsid(
             structure, supercell_matrix, fcs, mesh_density
             )
-    
-        # data = {
-        #     "created_at": datetime.utcnow(),            
-        #     "tags": fw_spec.get("tags", None),
-        #     "formula_pretty": structure.composition.reduced_formula,            
-        #     "structure": structure.as_dict(),
-        #     "supercell_matrix": supercell_matrix,
-        #     "supercell_structure": supercell_structure.as_dict(),
-        #     "perturbed_structures": [s.as_dict() for s in perturbed_structures],
-        #     "perturbed_forces": [f.tolist() for f in forces],
-        #     "fitting_data": fitting_data,
-        #     "thermal_data": thermal_data,
-        #     "force_constants_fs_id": fc_fsid,
-        #     "phonon_dos_fs_id": dos_fsid,
-        #     "phonon_bandstructure_uniform_fs_id": uniform_bs_fsid,
-        #     "phonon_bandstructure_line_fs_id": lm_bs_fsid,
-        #     }
-        # data.update(self.get("additional_fields", {}))
-
-        # # Get an id for the force constants
-        # fitting_id = _get_fc_fitting_id(mmdb)
-        # metadata = {"fc_fitting_id": fitting_id, "fc_fitting_dir": os.getcwd()}
-        # data.update(metadata)
-        # data = jsanitize(data,strict=True,allow_bson=True)
-        
-        # mmdb.db.lattice_dynamics.insert_one(data)
         
         logger.info("Finished inserting force constants and phonon data")
 
@@ -1334,32 +1285,8 @@ def RunFCtoPDOS(
             structure, supercell_matrix, fcs, mesh_density
             )
             
-        # data_at_T = {
-        #     "created_at": datetime.utcnow(),
-        #     "tags": fw_spec.get("tags", None),
-        #     "formula_pretty": structure.composition.reduced_formula,
-        #     "structure": structure.as_dict(),
-        #     "supercell_matrix": supercell_matrix,
-        #     "supercell_structure": supercell_structure.as_dict(),
-        #     "thermal_data": renorm_thermal_data,
-        #     "force_constants_fs_id": fc_fsid,
-        #     "phonon_dos_fs_id": dos_fsid,
-        #     "phonon_bandstructure_uniform_fs_id": uniform_bs_fsid,
-        #     "phonon_bandstructure_line_fs_id": lm_bs_fsid,
-        # }
-        # data_at_T.update(self.get("additional_fields", {}))
-    
-        # # Get an id for the force constants
-        # fitting_id = _get_fc_fitting_id(mmdb)
-        # metadata = {"fc_fitting_id": fitting_id, "renormalization_dir": os.getcwd()}
-        # data_at_T.update(metadata)
-        # data_at_T = jsanitize(data_at_T,strict=True,allow_bson=True)
-        
-        # mmdb.db.renormalized_lattice_dynamics.insert_one(data_at_T)
-        
         logger.info("Finished inserting renormalized force constants and phonon data at {} K".format(T))
-        
-    # return FWAction(update_spec=metadata)   
+         
     return uniform_bs, lm_bs, dos
 
 
@@ -1409,8 +1336,7 @@ def _get_fc_fsid(structure, supercell_matrix, fcs, mesh_density):
 @job
 @explicit_serialize
 # class RunHiPhiveRenorm(FiretaskBase):
-def RenormalizationFW(
-# def RunHiPhiveRenorm(
+def run_hiphive_renormalization(
     temperature: float,
     renorm_method: str,
     nconfig: int,
@@ -1615,7 +1541,7 @@ def setup_TE_iter(cs,cutoffs,parent_structure,param,temperatures,dLfrac):
 
 @job    
 @explicit_serialize    
-def LatticeThermalConductivityFW(
+def run_lattice_thermal_conductivity(
     shengbte_cmd: str,
     prev_dir_hiphive: str,
     loop: int,
@@ -1626,7 +1552,6 @@ def LatticeThermalConductivityFW(
     # db_file: str = None,
     shengbte_control_kwargs: Optional[dict] = None,
 ):  
-# class LatticeThermalConductivityFW(Firework):
     """
     Calculate the lattice thermal conductivity using ShengBTE.
     Args:
@@ -1675,7 +1600,7 @@ def LatticeThermalConductivityFW(
     
     print(f'We are in Lattice Thermal Conductivity FW 2')
 
-    run_shengbte = RunShengBTE(
+    run_shengbte = run_shengbte(
         shengbte_cmd = shengbte_cmd,
         renormalized = renormalized,
         temperature = temperature,
@@ -1691,4 +1616,3 @@ def LatticeThermalConductivityFW(
     # super().__init__(tasks, name=name, **kwargs)
 
     return Response(replace = run_shengbte)
-
