@@ -200,3 +200,84 @@ def write_vasp_input_set(
 
     logger.info("Writing VASP input set.")
     vis.write_input(directory, potcar_spec=potcar_spec, **kwargs)
+
+
+
+@auto_fileclient
+def copy_non_vasp_outputs(
+    src_dir: Path | str,
+    src_host: str | None = None,
+    # additional_vasp_files: Sequence[str] = tuple(),
+    # contcar_to_poscar: bool = True,
+    file_client: FileClient | None = None,
+):
+    """
+    Copy Non-VASP output files to the current directory.
+
+    For folders containing multiple calculations (e.g., suffixed with relax1, relax2,
+    etc), this function will only copy the files with the highest numbered suffix and
+    the suffix will be removed. Additional vasp files will be also be  copied with the
+    same suffix applied. Lastly, this function will gunzip any gzipped files.
+
+    Parameters
+    ----------
+    src_dir : str or Path
+        The source directory.
+    src_host : str or None
+        The source hostname used to specify a remote filesystem. Can be given as
+        either "username@remote_host" or just "remote_host" in which case the username
+        will be inferred from the current user. If ``None``, the local filesystem will
+        be used as the source.
+    additional_vasp_files : list of str
+        Additional files to copy, e.g. ["CHGCAR", "WAVECAR"].
+    contcar_to_poscar : bool
+        Move CONTCAR to POSCAR (original POSCAR is not copied).
+    file_client : .FileClient
+        A file client to use for performing file operations.
+    """
+    src_dir = strip_hostname(src_dir)  # TODO: Handle hostnames properly.
+
+    logger.info(f"Copying Non-VASP inputs from {src_dir}")
+
+    # relax_ext = get_largest_relax_extension(src_dir, src_host, file_client=file_client)
+    directory_listing = file_client.listdir(src_dir, host=src_host)
+
+    # find optional files; do not fail if KPOINTS is missing, this might be KSPACING
+    # note: POTCAR files never have the relax extension, whereas KPOINTS files should
+    optional_files = []
+
+    for loop in range(1, 100): 
+        for file in [f"structure_data_{loop}.json", f"perturbed_structures_{loop}.json", 
+                     f"perturbed_forces_{loop}.json", f"perturbed_forces_{loop}_new.json"]:
+            found_file = get_zfile(directory_listing, file, allow_missing=True)
+            if found_file is not None:
+                optional_files.append(found_file)
+
+    for file in ["cluster_space.cs", "force_constants.fcs", "parameters.txt", 
+            "fitting_data.json", "phonopy_params.yaml",
+            "thermal_data.json", "structure.json", "relaxed_structure.json",
+            "structure_data.json", "perturbed_structures.json", "perturbed_forces.json",
+            "fc2.hdf5", "fc3.hdf5", "FORCE_CONSTANTS_2ND", "FORCE_CONSTANTS_3RD"]:
+        found_file = get_zfile(directory_listing, file, allow_missing=True)
+        if found_file is not None:
+            optional_files.append(found_file)            
+
+    # # check at least one type of POTCAR file is included
+    # if len([f for f in optional_files if "POTCAR" in f.name]) == 0:
+    #     raise FileNotFoundError("Could not find POTCAR file to copy.")
+
+    copy_files(
+        src_dir,
+        src_host=src_host,
+        # include_files=required_files + optional_files,
+        include_files=optional_files,
+        file_client=file_client,
+    )
+
+    # gunzip_files(
+    #     include_files=required_files + optional_files,
+    #     allow_missing=True,
+    #     file_client=file_client,
+    # )
+
+    logger.info("Finished copying Non-VASP inputs")
