@@ -32,13 +32,21 @@ def test_mp_pre_relax_maker_default_values():
         assert actual == expected, f"{key=}, {actual=}, {expected=}"
 
 
-def test_mp_relax_maker_default_values():
+def test_mp_meta_gga_relax_maker_default_values():
     maker = MPMetaGGARelaxMaker()
     assert maker.name == "MP meta-GGA relax"
     assert {*maker.input_set_generator.config_dict} >= {"INCAR", "POTCAR"}
     for key, expected in expected_incar.items():
         actual = maker.input_set_generator.config_dict["INCAR"][key]
         assert actual == expected, f"{key=}, {actual=}, {expected=}"
+
+
+def test_mp_meta_gga_relax_maker_bandgap_tol():
+    maker = MPMetaGGARelaxMaker(
+        input_set_generator=MPMetaGGARelaxSetGenerator(bandgap_tol=0.1)
+    )
+    assert maker.input_set_generator.bandgap_tol == 0.1
+    # TODO finish this test
 
 
 def test_mp_meta_gga_static_maker(mock_vasp, clean_dir, vasp_test_dir):
