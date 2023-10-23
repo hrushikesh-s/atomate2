@@ -238,7 +238,7 @@ class PhononMaker(Maker):
         optimization_run_uuid = None
         if self.bulk_relax_maker is not None:
             # optionally relax the structure
-            bulk = self.bulk_relax_maker.make(structure, prev_vasp_dir=prev_vasp_dir)
+            # bulk = self.bulk_relax_maker.make(structure, prev_vasp_dir=prev_vasp_dir)
             if isinstance(self.bulk_relax_maker, ForceFieldRelaxMaker):
                 bulk = self.bulk_relax_maker.make(structure)
             else:
