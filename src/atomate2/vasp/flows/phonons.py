@@ -19,6 +19,7 @@ from atomate2.common.jobs.utils import structure_to_conventional, structure_to_p
 from atomate2.vasp.flows.core import DoubleRelaxMaker
 from atomate2.vasp.jobs.core import DielectricMaker, StaticMaker, TightRelaxMaker
 from atomate2.vasp.sets.core import StaticSetGenerator
+from atomate2.forcefields.jobs import ForceFieldRelaxMaker
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -28,6 +29,10 @@ if TYPE_CHECKING:
 
     from atomate2.vasp.jobs.base import BaseVaspMaker
 
+import logging
+logger = logging.getLogger(__name__)
+from jobflow import SETTINGS, initialize_logger
+initialize_logger()
 
 @dataclass
 class PhononMaker(Maker):
@@ -234,6 +239,10 @@ class PhononMaker(Maker):
         if self.bulk_relax_maker is not None:
             # optionally relax the structure
             bulk = self.bulk_relax_maker.make(structure, prev_vasp_dir=prev_vasp_dir)
+            if isinstance(self.bulk_relax_maker, ForceFieldRelaxMaker):
+                bulk = self.bulk_relax_maker.make(structure)
+            else:
+                bulk = self.bulk_relax_maker.make(structure, prev_vasp_dir=prev_vasp_dir)
             jobs.append(bulk)
             structure = bulk.output.structure
             prev_vasp_dir = bulk.output.dir_name
@@ -259,9 +268,13 @@ class PhononMaker(Maker):
         if (self.static_energy_maker is not None) and (
             total_dft_energy_per_formula_unit is None
         ):
-            static_job = self.static_energy_maker.make(
-                structure=structure, prev_vasp_dir=prev_vasp_dir
-            )
+            # static_job = self.static_energy_maker.make(
+            #     structure=structure, prev_vasp_dir=prev_vasp_dir
+            # )
+            if isinstance(self.static_energy_maker, ForceFieldRelaxMaker):
+                static_job = self.static_energy_maker.make(structure)
+            else:
+                static_job = self.static_energy_maker.make(structure, prev_vasp_dir=prev_vasp_dir)
             jobs.append(static_job)
             total_dft_energy = static_job.output.output.energy
             static_run_job_dir = static_job.output.dir_name
