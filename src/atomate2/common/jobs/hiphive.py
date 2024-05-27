@@ -36,6 +36,10 @@ from hiphive.run_tools import free_energy_correction
 from hiphive.structure_generation.random_displacement import (
     generate_displaced_structures,
 )
+from hiphive.structure_generation.rattle import (
+    generate_mc_rattled_structures,
+    generate_rattled_structures,
+)
 from hiphive.utilities import get_displacements
 
 # Jobflow packages
@@ -65,7 +69,10 @@ from atomate2.common.jobs.phonons import get_supercell_size, run_phonon_displace
 from atomate2.settings import Atomate2Settings
 from atomate2.utils.log import initialize_logger
 from atomate2.vasp.files import copy_hiphive_outputs
-
+from atomate2.forcefields.jobs import (
+    CHGNetStaticMaker,
+    ForceFieldStaticMaker,
+)
 if TYPE_CHECKING:
     from ase.atoms import Atoms
     from pymatgen.core.structure import Structure
@@ -83,7 +90,7 @@ T_QHA = [
 # T_KLAT = [300]  # [i*100 for i in range(0,11)]
 T_KLAT = {"min":100,"max":1000,"step":100} #[i*100 for i in range(0,11)]
 T_THERMAL_CONDUCTIVITY = [0, 100, 200, 300]  # [i*100 for i in range(0,16)]
-IMAGINARY_TOL = 0.025  # in THz
+IMAGINARY_TOL = 0.1  # in THz # changed from 0.025
 FIT_METHOD = "rfe"
 
 eV2J = sp.constants.elementary_charge
@@ -112,7 +119,7 @@ def hiphive_static_calcs(
                 min_length: float | None = None,
                 prefer_90_degrees: bool = True,
                 n_structures: int | None = None,
-                # fixed_displs: list[float] = [0.01, 0.03, 0.08, 0.1],
+                fixed_displs: list[float] = [0.01, 0.03, 0.08, 0.1],
                 loops: int | None = None,
                 prev_dir: str | None = None,
                 phonon_displacement_maker: BaseVaspMaker | None = None,
@@ -145,7 +152,8 @@ def hiphive_static_calcs(
             structure=structure,
             supercell_matrix=supercell_matrix,
             n_structures=n_structures,
-            # fixed_displs=fixed_displs,
+            fixed_displs=fixed_displs,
+            prev_dir=prev_dir,
             loop=loops,
         )
     jobs.append(displacements)
@@ -176,129 +184,56 @@ def hiphive_static_calcs(
 
     return Response(replace=jobs, output=outputs)
 
-
-def find_smallest_x(n_structures: int) -> int:
-    # Starting from x = 3 because x - 2 in the denominator implies x > 2
-    x = 3
-    while True:
-        # Calculate the value of the expression for the current x
-        expression_value = (n_structures - 4) / (x - 2)
-
-        # Check if the expression value satisfies the inequality
-        if 5 <= expression_value <= 6:
-            return math.floor(x)  # Explicitly return the floor of x
-        x += 0.1
-
 @job
 def generate_hiphive_displacements(
     structure: Structure,
+    displacements: list[Structure] | None = None,
     supercell_matrix: list[list[int]] | None = None,
     n_structures: int | None = None,
     fixed_displs: list[float] | None = None,
+    prev_dir: str | None = None,
     loop: int | None = None,
+    high_force_atoms: list | None = None,
 ) -> list[Structure]:
     """Job generates the perturbed structures for hiPhive fitting."""
     if fixed_displs is None:
-        # # fixed_displs = [0.01, 0.03, 0.08, 0.1] #TODO, this list is used in
-        #                                          # the paper
-        # smallest_disp = 0.01
+        fixed_displs = [0.01, 0.03, 0.08, 0.1] #TODO, this list is used in the paper
+        fixed_displs = [0.01, 0.03, 0.4, 0.6] #TODO, this list is used in the paper
+        fixed_displs = [0.2, 0.4, 0.6, 0.8] #TODO, this list is used in the paper
+        logger.info(f"default fixed_displs = {fixed_displs}")
 
-        # # dictionary of largest displacements for each period
-        # largest_displacement = {1: 0.1, 2: 0.2, 3: 0.2, 4: 0.3, 5: 0.4, 6: 0.5, 7: 0.5}
-
-        # row = int(
-        #     np.around(np.array([s.row for s in structure.species]).mean(), 0)
-        # )
-
-        # largest_disp = largest_displacement[row]
-
-        # ratio = int(largest_disp/smallest_disp)
-        # if 60 >= n_structures >= 4:
-        #     logger.info(f"n_structures inside if statement >= 4 is {n_structures}")
-        #     factors = np.sqrt(np.linspace(1,ratio**2,n_structures))
-        # elif n_structures < 4   :
-        #     factors = np.sqrt(np.linspace(1,ratio**2,4))
-        # else:
-        #     factors = np.sqrt(np.linspace(1,ratio**2,60))
-        # amplitudes = (smallest_disp*factors).round(3)
-        # logger.info(f"amplitudes = {amplitudes}")
-        # fixed_displs = amplitudes.tolist()
-        # logger.info(f"list_amplitudes = {fixed_displs}")
-
-        if n_structures < 4:
-            n_structures = 4
-        else:
-            pass
-        logger.info(f"n_structures = {n_structures}")
-        # # Ask the user for n_structures
-        # n_structures = int(input("Enter the value of n_structures: "))
-
-        # # Find the smallest integer x that satisfies the inequality
-        # smallest_x = find_smallest_x(n_structures)
-
-        smallest_x = 2
-
-        # Output the result
-        logger.info(f"The smallest integer x that satisfies the inequality is: {smallest_x}")
-
-        # Create structures at equal interval between disp = 0.01 & 0.055
-        # equal_interval_structures = np.linspace(0.01, 0.055, smallest_x)
-        equal_interval_structures = np.linspace(0.001, 0.005, smallest_x)
-        # create a new np array with 3 elements equaling 0.03 and 0.08 respectively
-        equal_interval_structures = np.array([0.03, 0.08])
-
-        # # Remaining number of structures
-        # remaining_structures = n_structures - smallest_x
-
-
-        # # structure_data = loadfn(f"/Users/HPSahasrabuddhe/Desktop/Acads/3rd_sem/MSE 299/Hiphive_Atomate2_integration/hiphive_4622_VASP_96/launcher_2024-04-01-08-09-15-480067/structure_data_1.json")
-        # # structure = structure_data["structure"]
-
-        # largest_period_default = {1: 0.1, 2: 0.2, 3: 0.2, 4: 0.3, 5: 0.4, 6: 0.5, 7: 0.5}
-
-        # row = int(
-        #     np.around(np.array([s.row for s in structure.species]).mean(), 0)
-        # )
-        # logger.info(f"row = {row}")
-
-        # largest = largest_period_default[row]
-        # logger.info(f"largest = {largest}")
-        # smallest = 0.056
-
-        # ratio = largest/smallest
-        # logger.info(f"ratio = {ratio}")
-        # logger.info(f"smallest = {smallest}")
-        # logger.info(f"largest = {largest}")
-        # logger.info(f"remaining_structures = {remaining_structures}")
-        # factors = np.sqrt(np.linspace(1,ratio**2,remaining_structures))
-        # logger.info(f"factors = {factors}")
-        # amplitudes = (smallest*factors).round(3)
-        # logger.info(f"amplitudes = {amplitudes}")
-
-        # # Combine the two sets of structures
-        # all_amplitudes = np.concatenate((equal_interval_structures, amplitudes))
-
-        # fixed_displs = all_amplitudes.tolist()
-        # logger.info(f"all_amplitudes = {all_amplitudes}")
-
-        fixed_displs = equal_interval_structures.tolist()
-        logger.info(f"all_amplitudes = {fixed_displs}")
-
-
+    logger.info(f"default fixed_displs = {fixed_displs}")
     logger.info(f"supercell_matrix = {supercell_matrix}")
+    # supercell_matrix = [[3, 0, 0], [0, 3, 0], [0, 0, 3]]
     supercell_structure = SupercellTransformation(
             scaling_matrix=supercell_matrix
             ).apply_transformation(structure)
     logger.info(f"supercell_structure = {supercell_structure}")
+    structure_data = {
+        "structure": structure,
+        "supercell_structure": supercell_structure,
+        "supercell_matrix": supercell_matrix,
+    }
+
+    dumpfn(structure_data, f"structure_data_{loop}.json")
 
     # Generate the rattled structures ####
     structures_ase_all = []
     logger.info(f"n_structures = {n_structures}")
+    structures_ase_all_prev = []
     # Convert to ASE atoms
+    if high_force_atoms is not None:
+            logger.info(f"len_high_force_atoms = {len(high_force_atoms)}")
+            logger.info(f"high_force_atoms = {high_force_atoms}")
+            for pymatgen_structure in displacements:
+                atom = AseAtomsAdaptor.get_atoms(pymatgen_structure)
+                structures_ase_all_prev.append(atom)
     for i in range(len(fixed_displs)):
         supercell_ase = AseAtomsAdaptor.get_atoms(supercell_structure)
         structures_ase = generate_displaced_structures(
-            atoms=supercell_ase, n_structures=n_structures, distance=fixed_displs[i], loop=loop
+            atoms=supercell_ase, n_structures=n_structures, distance=fixed_displs[i],
+            loop=loop, high_force_atoms=high_force_atoms, displ_number=i,
+            structures_ase_all_prev=structures_ase_all_prev
         )
         structures_ase_all.extend(structures_ase)
 
@@ -316,6 +251,7 @@ def generate_hiphive_displacements(
     for i in range(len(structures_pymatgen)):
         structures_pymatgen[i].to(f"POSCAR_{i}", "poscar")
 
+    dumpfn(structures_pymatgen, f"perturbed_structures_{loop}.json")
     return structures_pymatgen
 
 @job
@@ -342,6 +278,7 @@ def collect_perturbed_structures(
     """
     logger.info(f"scaling_matrix = {supercell_matrix}")
     logger.info(f"structure = {structure}")
+    # supercell_matrix = [[3, 0, 0], [0, 3, 0], [0, 0, 3]] # TODO: remove this line later
     supercell = SupercellTransformation(scaling_matrix=supercell_matrix).apply_transformation(structure)
     structure_data = {
         "structure": structure,
@@ -405,114 +342,6 @@ def collect_perturbed_structures(
 
     return [all_structures, all_forces, structure_data, current_dir]
 
-
-# @job
-# def quality_control(
-#     rmse_test: float,
-#     n_structures: int,
-#     fixed_displs: list[float],
-#     loop: int,
-#     fit_method: str,
-#     disp_cut: float,
-#     bulk_modulus: float,
-#     temperature_qha: float,
-#     mesh_density: float,
-#     imaginary_tol: float,
-#     prev_dir_json_saver: str,
-#     prev_dir: str,
-#     supercell_matrix_kwargs: list[list[int]],
-# ):
-#     """
-#     Check if the desired Test RMSE is achieved.
-
-#     If not, then increase the number of structures
-#     """
-#     if rmse_test > 0.010:
-#         return Response(
-#             addition=quality_control_job(
-#                 rmse_test,
-#                 n_structures,
-#                 fixed_displs,
-#                 loop,
-#                 fit_method,
-#                 disp_cut,
-#                 bulk_modulus,
-#                 temperature_qha,
-#                 mesh_density,
-#                 imaginary_tol,
-#                 prev_dir_json_saver,
-#                 prev_vasp_dir,
-#                 supercell_matrix_kwargs,
-#             )
-#         )
-#     return None
-
-
-# @job
-# def quality_control_job(
-#     rmse_test,
-#     n_structures: int,
-#     fixed_displs: List[float],
-#     loop: int,
-#     fit_method: str,
-#     disp_cut: float,
-#     bulk_modulus: float,
-#     temperature_qha: float,
-#     mesh_density: float,
-#     imaginary_tol: float,
-#     prev_dir_json_saver: str,
-#     prev_vasp_dir: str,
-#     supercell_matrix_kwargs: List[List[int]],
-# ):
-#     """Increases the number of structures if the desired Test RMSE is not achieved."""
-#     jobs = []
-#     outputs = []
-
-#     # 4. Quality Control Job to check if the desired Test RMSE is achieved,
-#     # if not, then increase the number of structures --
-#     # Using "addition" feature of jobflow
-#     loop += 1
-#     n_structures += 1
-#     # prev_dir_json_saver="/pscratch/sd/h/hrushi99/atomate2/InAs/
-#     # block_2023-06-16-04-09-51-792824/launcher_2023-06-23-23-58-57-102993/
-#     # launcher_2023-06-23-23-59-34-157381"
-#     error_check_job = quality_control(
-#         rmse_test=fw_fit_force_constant.output[5],
-#         n_structures=n_structures,
-#         fixedDispls=fixed_displs,
-#         loop=loop,
-#         fit_method=fit_method,
-#         disp_cut=disp_cut,
-#         bulk_modulus=bulk_modulus,
-#         temperature_qha=temperature_qha,
-#         mesh_density=mesh_density,
-#         imaginary_tol=imaginary_tol,
-#         prev_dir_json_saver=json_saver.output[3],
-#         # prev_dir_json_saver = prev_dir_json_saver,
-#         prev_vasp_dir=prev_vasp_dir,
-#         supercell_matrix_kwargs=supercell_matrix_kwargs,
-#     )
-#     error_check_job.name += f" {loop}"
-#     jobs.append(error_check_job)
-#     outputs.append(error_check_job.output)
-#     error_check_job.metadata.update(
-#         {
-#             "tag": [
-#                 f"error_check_job_{loop}",
-#                 f"nConfigsPerStd={n_structures}",
-#                 f"fixedDispls={fixed_displs}",
-#                 f"dispCut={disp_cut}",
-#                 f"supercell_matrix_kwargs={supercell_matrix_kwargs}",
-#                 f"loop={loop}",
-#             ]
-#         }
-#     )
-
-#     flow = Flow(jobs=jobs, output=outputs)
-
-#     quality_control_job.name = f"quality_control_job {loop}"
-
-#     return Response(addition=flow)
 @job
 def run_hiphive_individually(
     mpid: str = None,
@@ -712,50 +541,22 @@ def run_hiphive(
     copy_hiphive_outputs(prev_dir_json_saver)
 
     all_structures = loadfn(f"perturbed_structures_{loop}.json")
+    # all_structures = loadfn(f"perturbed_structures.json")
     all_forces = loadfn(f"perturbed_forces_{loop}_new.json")
+    # all_forces = loadfn(f"perturbed_forces.json")
     structure_data = loadfn(f"structure_data_{loop}.json")
+    # structure_data = loadfn(f"structure_data.json")
 
     parent_structure = structure_data["structure"]
     supercell_structure = structure_data["supercell_structure"]
     supercell_matrix = np.array(structure_data["supercell_matrix"])
 
-    parent_structure = SpacegroupAnalyzer(parent_structure).find_primitive() #TODO refactor this later
+    # parent_structure = SpacegroupAnalyzer(parent_structure).find_primitive() #TODO refactor this later
 
     if cutoffs is None:
         cutoffs = get_cutoffs(supercell_structure)
         logger.info(f"cutoffs is {cutoffs}")
-        # cutoffs = [[6, 3.5, 3]]
-        # cutoffs = [[9.0, 5.5, 4.25]]
-        # cutoffs = [[8.0]]
-        # cutoffs = [[9.0, 6.5, 5]]
-        # cutoffs = [[9.0, 5.5, 3]]
-        # cutoffs = [[9, 9.25, 5]]
-        # cutoffs = [[9, 8.3125, 5]]
-        # cutoffs = [[4, 4, 4]]
-        # cutoffs = [[3, 2.5]]
-        # cutoffs = [[2, 2.7]]
-        # cutoffs = [[6, 4, 2]]
-        # cutoffs = [[1.8635, 4]]
-        # cutoffs = [[2.559, 4]] # results in 2nd, 3rd order -- 124, 7379 DOFs -- imaginary modes = 8
-        # cutoffs = [[2.54, 4]] # results in 2nd, 3rd order -- 106, 7379 DOFs -- imaginary modes = 2
-        # cutoffs = [[2.5, 4]] # results in 2nd, 3rd order -- 88, 7379 DOFs -- imaginary modes = 0
-        # cutoffs = [[2.52, 4]] # results in 2nd, 3rd order -- 97, 7379 DOFs -- imaginary modes = 2
-        # cutoffs = [[2.52, 3]] # results in 2nd, 3rd order -- 97, 857 DOFs -- imaginary modes = 0
-        # cutoffs = [[2.52, 4.6]] # results in 2nd, 3rd order -- 97, 20804 DOFs -- imaginary modes = 2
-        # cutoffs = [[2.5, 4.6]] # results in 2nd, 3rd order -- 88, 20804 DOFs -- imaginary modes = 0
-        # cutoffs = [[2.5, 5.6]] # results in 2nd, 3rd order -- 88, 67511 DOFs -- imaginary modes = ?
-        cutoffs = [[9.0, 5.5, 3.5]]
-        cutoffs = [[9, 8.3125, 5]]
-        cutoffs = [[6, 5, 4]] # results in {2: 36, 3: 263, 4: 327} DOFs -- imaginary modes = 18, rmse = 132meV/atom
-        cutoffs = [[8, 5, 4]] # results in {2: 79, 3: 263, 4: 327} DOFs -- imaginary modes = 174, rmse = 68.8meV/atom
-        cutoffs = [[10, 5, 4]] # results in {2: 151, 3: 263, 4: 327} DOFs -- imaginary modes = 150, rmse = 40.5meV/atom
-        cutoffs = [[10, 7, 4]] # results in {2: 151, 3: 2149, 4: 327} DOFs -- imaginary modes = 150, rmse = 40.1meV/atom
-        cutoffs = [[10, 7, 5]] # results in {2: 151, 3: 2149, 4: 2876} DOFs -- imaginary modes = 150, rmse = 38.03meV/atom
-        cutoffs = [[9, 6, 4]] # {2: 102, 3: 775, 4: 428} -- imaginary modes = 114, rmse = 28.9meV/atom -- MgO 1265
-        cutoffs = [[9, 7, 4.3]] # {2: 102, 3: 2593, 4: 806} -- imaginary modes = 114, rmse = 29.2meV/atom -- MgO 1265
-        cutoffs = [[9, 6, 4.5]] # {2: 74, 3: 597, 4: 428} -- imaginary modes = 0, rmse = 13.3meV/atom -- CaO 2605
-        cutoffs = [[10, 6, 4.5]] # {2: 88, 3: 597, 4: 428} -- imaginary modes = 0, rmse = 9.6meV/atom -- CaO 2605
-        cutoffs = [[10, 7, 5]] # {2: 88, 3: 775, 4: 806} -- imaginary modes = 0, rmse = 9.6meV/atom -- CaO 2605
+        cutoffs = [[9, 4, 3]] # mp-23339 {2: 1513, 3: 787, 4: 210}
         logger.info(f"cutoffs is {cutoffs}")
     else:
         pass
@@ -785,25 +586,28 @@ def run_hiphive(
         atoms.positions = supercell_atoms.get_positions()
         structures.append(atoms)
 
+        # Calculate mean displacements
         mean_displacements = np.linalg.norm(displacements, axis=1).mean()
         logger.info(f"Mean displacements while reading individual displacements: "
                     f"{mean_displacements}")
+        # Calculate standard deviation of displacements
+        std_displacements = np.linalg.norm(displacements, axis=1).std()
+        logger.info(f"Standard deviation of displacements while reading individual displacements: "
+                    f"{std_displacements}")
 
     all_cutoffs = cutoffs
     logger.info(f"all_cutoffs is {all_cutoffs}")
 
-    fcs, param, cs, fitting_data = fit_force_constants(
+    fcs, param, cs, fitting_data, fcp = fit_force_constants(
         parent_structure=parent_structure,
         supercell_matrix=supercell_matrix,
+        supercell_structure=supercell_structure,
         structures=structures,
         all_cutoffs=all_cutoffs,
         disp_cut=disp_cut,
         imaginary_tol=imaginary_tol,
         fit_method=fit_method,
     )
-
-    if fcs is None:
-        raise RuntimeError("Could not find a force constant solution")
 
     logger.info("Saving Harmonic props")
     thermal_data, phonopy = harmonic_properties(
@@ -818,6 +622,30 @@ def run_hiphive(
         thermal_data["n_imaginary"],
         bulk_modulus,
     )
+
+    if fcs is None:
+        raise RuntimeError("Could not find a force constant solution")
+
+    if isinstance(fcs, ForceConstants):
+        logger.info("Writing force_constants")
+        fcs.write("force_constants.fcs")
+    else:
+        logger.info("fcs is not an instance of ForceConstants")
+
+    if isinstance(fcp, ForceConstantPotential):
+        logger.info("Writing force_constants_potential")
+        fcp.write("force_constants_potential.fcp")
+
+    logger.info("Saving parameters")
+    np.savetxt("parameters.txt", param)
+
+    if isinstance(cs, ClusterSpace):
+        logger.info("Writing cluster_space")
+        cs.write("cluster_space.cs")
+        logger.info("cluster_space writing is complete")
+    else:
+        logger.info("cs is not an instance of ClusterSpace")
+
     logger.info("Saving phonopy_params")
     phonopy.save("phonopy_params.yaml")
     fitting_data["n_imaginary"] = thermal_data.pop("n_imaginary")
@@ -829,22 +657,6 @@ def run_hiphive(
 
     logger.info("Writing cluster space and force_constants")
     logger.info(f"{type(fcs)}")
-
-    if isinstance(fcs, ForceConstants):
-        logger.info("Writing force_constants")
-        fcs.write("force_constants.fcs")
-    else:
-        logger.info("fcs is not an instance of ForceConstants")
-
-    logger.info("Saving parameters")
-    np.savetxt("parameters.txt", param)
-
-    if isinstance(cs, ClusterSpace):
-        logger.info("Writing cluster_space")
-        cs.write("cluster_space.cs")
-        logger.info("cluster_space writing is complete")
-    else:
-        logger.info("cs is not an instance of ClusterSpace")
 
     # # following code is commented only for testing puropose
     # if fitting_data["n_imaginary"] == 0:
@@ -956,16 +768,16 @@ def get_cutoffs(supercell_structure: Structure) -> list[list[float]]:
 
 
     min_cutoffs = {
-        # 2: {1: 7.0, 2: 8.0, 3: 9.0, 4: 10.0, 5: 11.0, 6: 12.0, 7: 13.0},
-        2: {1: 5.0, 2: 6.0, 3: 7.0, 4: 8.0, 5: 9.0, 6: 10.0, 7: 11.0},
+        2: {1: 7.0, 2: 8.0, 3: 9.0, 4: 10.0, 5: 11.0, 6: 12.0, 7: 13.0},
+        # 2: {1: 5.0, 2: 6.0, 3: 7.0, 4: 8.0, 5: 9.0, 6: 10.0, 7: 11.0},
         # 2: {1: 6.0, 2: 7.0, 3: 8.0, 4: 9.0, 5: 10.0, 6: 11.0, 7: 12.0},
         3: {1: 2.5, 2: 3.0, 3: 4.0, 4: 5.0, 5: 5.5, 6: 6.0, 7: 6.5},
         # 3: {1: 3.0, 2: 3.5, 3: 4.5, 4: 5.5, 5: 6.0, 6: 6.5, 7: 7.0},
         4: {1: 1.5, 2: 2.0, 3: 2.5, 4: 3.0, 5: 3.5, 6: 4.0, 7: 4.5},
         # 4: {1: 2.5, 2: 3.0, 3: 3.5, 4: 4.0, 5: 4.5, 6: 5.0, 7: 5.5},
     }
-    inc = {2: 0, 3: 2.0, 4: 1.2}
-    steps = {2: 0, 3: 0.75, 4: 0.6}
+    inc = {2: 2, 3: 2.0, 4: 1.2}
+    steps = {2: 1, 3: 0.75, 4: 0.6}
 
     row = int(
         np.around(np.array([s.row for s in supercell_structure.species]).mean(), 0)
@@ -977,7 +789,10 @@ def get_cutoffs(supercell_structure: Structure) -> list[list[float]]:
     mins = {2: min_cutoffs[2][row], 3: min_cutoffs[3][row], 4: min_cutoffs[4][row]}
 
     # create an NDArray of 2nd order cutofss with only one entry -> mins[2], and 3rd and 4th order cutoffs with a range
-    range_two = np.array([mins[2]])
+    # range_two = np.array([mins[2]])
+    range_two = np.arange(
+        mins[2], mins[2] + factor * (inc[2] + steps[2]), factor * steps[2]
+    )
     range_three = np.arange(
         mins[3], mins[3] + factor * (inc[3] + steps[3]), factor * steps[3]
     )
@@ -1004,6 +819,7 @@ def get_cutoffs(supercell_structure: Structure) -> list[list[float]]:
 def fit_force_constants(
     parent_structure: Structure,
     supercell_matrix: np.ndarray,
+    supercell_structure: Structure,
     structures: list[Atoms],
     all_cutoffs: list[list[float]],
     # separate_fit: bool,
@@ -1100,13 +916,14 @@ def fit_force_constants(
 
     cutoff_results = Parallel(n_jobs=min(os.cpu_count(),len(all_cutoffs)),
                               backend="multiprocessing")(delayed(_run_cutoffs)(
-        i, cutoffs, n_cutoffs, parent_structure, structures, supercell_matrix,
-        fit_method, disp_cut, fit_kwargs) for i, cutoffs in enumerate(all_cutoffs))
+        i, cutoffs, n_cutoffs, parent_structure, supercell_structure, structures,
+        supercell_matrix, fit_method, disp_cut, fit_kwargs) for i, cutoffs in enumerate(all_cutoffs))
 
     for result in cutoff_results:
         if result is None:
+            print("result is None")
             continue
-
+        print(f"result = {result}")
         fitting_data["cutoffs"].append(result["cutoffs"])
         fitting_data["rmse_test"].append(result["rmse_test"])
         #        fitting_data["n_imaginary"].append(result["n_imaginary"])
@@ -1125,13 +942,14 @@ def fit_force_constants(
 
     logger.info("Finished fitting force constants.")
 
-    return best_fit["force_constants"], best_fit["parameters"], best_fit["cluster_space"], fitting_data
+    return best_fit["force_constants"], best_fit["parameters"], best_fit["cluster_space"], fitting_data, best_fit["force_constants_potential"]
 
 def _run_cutoffs(
     i: int,
     cutoffs: list[float],
     n_cutoffs: int,
     parent_structure: Structure,
+    supercell_structure: Structure,
     structures: list[Atoms],
     supercell_matrix: np.ndarray, # shape=(3, 3), dtype='intc', order='C'.,
     fit_method: str,
@@ -1139,13 +957,16 @@ def _run_cutoffs(
     fit_kwargs: dict[str, Any],
 ) -> dict[str, Any]:
     logger.info(f"Testing cutoffs {i+1} out of {n_cutoffs}: {cutoffs}")
-    supercell_atoms = structures[0]
+    supercell_atoms = structures[0] #TODO: only for testing purposes
+    # supercell_atoms = AseAtomsAdaptor.get_atoms(supercell_structure)
+    logger.info(f"supercell_atoms = {supercell_atoms}")
 
     if not is_cutoff_allowed(supercell_atoms, max(cutoffs)):
         logger.info("Skipping cutoff due as it is not commensurate with supercell size")
         return {}
 
     cs = ClusterSpace(supercell_atoms, cutoffs, symprec=1e-3, acoustic_sum_rules=True)
+    # cs = ClusterSpace(supercell_atoms, cutoffs, symprec=1e-1, acoustic_sum_rules=True)
     logger.debug(cs.__repr__())
     n2nd = cs.get_n_dofs_by_order(2) # change it back to cs.get_n_dofs_by_order(2)
     nall = cs.n_dofs
@@ -1179,12 +1000,25 @@ def _run_cutoffs(
     phonopy.run_mesh(mesh, with_eigenvectors=False, is_mesh_symmetry=False)
     omega = phonopy.mesh.frequencies  # THz
     omega = np.sort(omega.flatten())
-    logger.info(f"omega = {omega}")
+    logger.info(f"omega_one_shot_fit = {omega}")
     imaginary = np.any(omega < -1e-3)
-    logger.info(f"imaginary = {imaginary}")
+    logger.info(f"imaginary_one_shot_fit = {imaginary}")
     # commenting it out only for testing purposes
 
+    # Phonopy's way of calculating phonon frequencies
+    structure_phonopy = get_phonopy_structure(parent_structure)
+    phonon = Phonopy(structure_phonopy, supercell_matrix=supercell_matrix)
+    phonon.set_force_constants(fcs.get_fc_array(2))
+    phonon.run_mesh(mesh=100.0, is_mesh_symmetry=False, is_gamma_center=True)
+    mesh = phonon.get_mesh_dict()
+    omega = mesh["frequencies"]
+    omega = np.sort(omega.flatten())
+    logger.info(f"omega_phonopy_one_shot_fitting = {omega}")
+    imaginary = np.any(omega < -1e-3)
+    logger.info(f"imaginary_phonopy_one_shot_fitting = {imaginary}")
+
     if imaginary:
+    # if False:
     # if True: # only for testing purposes
         logger.info(
             "Imaginary modes found! Fitting anharmonic force constants separately"
@@ -1202,7 +1036,40 @@ def _run_cutoffs(
         assert(nall==len(parameters))
         logger.info(f"Training complete for cutoff: {i}, {cutoffs}")
 
+        fcp = ForceConstantPotential(cs, parameters)
+        logger.info(f"supercell atoms = {supercell_atoms}")
+        fcs = fcp.get_force_constants(supercell_atoms)
+        logger.info("Did you get the large Condition number error?")
+
+        parent_phonopy = get_phonopy_structure(parent_structure)
+        phonopy = Phonopy(parent_phonopy, supercell_matrix=supercell_matrix)
+        phonopy.primitive.get_number_of_atoms()
+        mesh = supercell_matrix.diagonal() * 2
+        phonopy.set_force_constants(fcs.get_fc_array(2))
+        phonopy.set_mesh(
+            mesh, is_eigenvectors=False, is_mesh_symmetry=False
+        )  # run_mesh(is_gamma_center=True)
+        phonopy.run_mesh(mesh=100.0, with_eigenvectors=False, is_mesh_symmetry=False)
+        omega = phonopy.mesh.frequencies  # THz
+        omega = np.sort(omega.flatten())
+        logger.info(f"omega_seperate_fit = {omega}")
+        imaginary = np.any(omega < -1e-3)
+        logger.info(f"imaginary_seperate_fit = {imaginary}")
+
+        # Phonopy's way of calculating phonon frequencies
+        structure_phonopy = get_phonopy_structure(parent_structure)
+        phonon = Phonopy(structure_phonopy, supercell_matrix=supercell_matrix)
+        phonon.set_force_constants(fcs.get_fc_array(2))
+        phonon.run_mesh(mesh, is_mesh_symmetry=False, is_gamma_center=True)
+        mesh = phonon.get_mesh_dict()
+        omega = mesh["frequencies"]
+        omega = np.sort(omega.flatten())
+        logger.info(f"omega_phonopy_seperate_fit = {omega}")
+        imaginary = np.any(omega < -1e-3)
+        logger.info(f"imaginary_phonopy_seperate_fit = {imaginary}")
+
     else:
+    # if True:
         logger.info("No imaginary modes! Fitting all force constants in one shot")
         separate_fit = False
         sc = get_structure_container(
@@ -1271,12 +1138,18 @@ def get_structure_container(
         A hiPhive StructureContainer.
     """
     sc = StructureContainer(cs)
+    logger.info(f"sc = {sc}")
     logger.info(f"initial shape of fit matrix = {sc.data_shape}")
     saved_structures = []
     for _, structure in enumerate(structures):
         displacements = structure.get_array("displacements")
+        # Calculate mean displacements
         mean_displacements = np.linalg.norm(displacements, axis=1).mean()
         logger.info(f"Mean displacements: {mean_displacements}")
+        # Calculate standard deviation of displacements
+        std_displacements = np.linalg.norm(displacements, axis=1).std()
+        logger.info(f"Standard deviation of displacements: "
+                    f"{std_displacements}")
         if not separate_fit:  # fit all
             sc.add_structure(structure)
         else:  # fit separately
@@ -1337,6 +1210,8 @@ def harmonic_properties(
         frequency at Gamma, and the free energy, entropy, and heat capacity
     """
 
+    # fcs = ForceConstants.read("force_constants.fcs")
+
     logger.info('Evaluating harmonic properties...')
     fcs2 = fcs.get_fc_array(2)
     fcs3 = fcs.get_fc_array(3)
@@ -1353,17 +1228,40 @@ def harmonic_properties(
     logger.info('Thermal properties successfully run!')
 
     _, free_energy, entropy, heat_capacity = phonopy.get_thermal_properties()
-    free_energy *= 1000/sp.constants.Avogadro/eV2J/natom # kJ/mol to eV/atom
-    entropy *= 1/sp.constants.Avogadro/eV2J/natom # J/K/mol to eV/K/atom
-    heat_capacity *= 1/sp.constants.Avogadro/eV2J/natom # J/K/mol to eV/K/atom
+    # free_energy *= 1000/sp.constants.Avogadro/eV2J/natom # kJ/mol to eV/atom
+    # entropy *= 1/sp.constants.Avogadro/eV2J/natom # J/K/mol to eV/K/atom
+    # heat_capacity *= 1/sp.constants.Avogadro/eV2J/natom # J/K/mol to eV/K/atom
     logger.info(f"Heat_capacity_harmonic_property: {heat_capacity}")
     freq = phonopy.mesh.frequencies # in THz
     logger.info(f'Frequencies: {freq}')
+    logger.info(f"freq_flatten = {np.sort(freq.flatten())}")
     # find imaginary modes at gamma
 #    phonopy.run_qpoints([0, 0, 0])
 #    gamma_eigs = phonopy.get_qpoints_dict()["frequencies"]
     n_imaginary = int(np.sum(freq < -np.abs(imaginary_tol)))
     min_freq = np.min(freq)
+
+
+    # # Phonopy's way of calculating phonon frequencies
+    # # delete this block of code later. Only for testing purposes
+    # logger.info(f"Mesh for calculating phonon frequencies using Phonopy's way = {mesh}")
+    # mesh = 100
+    # logger.info(f"Mesh for calculating phonon frequencies using Phonopy's way = {mesh}")
+    # # fcs = ForceConstants.read("force_constants.fcs")
+    # fcs2 = fcs.get_fc_array(2)
+    # structure_phonopy = get_phonopy_structure(structure)
+    # phonon = Phonopy(structure_phonopy, supercell_matrix=supercell_matrix)
+    # phonon.set_force_constants(fcs2)
+    # phonon.run_mesh(mesh, is_mesh_symmetry=False, is_gamma_center=True)
+    # mesh = phonon.get_mesh_dict()
+
+    # omega = mesh["frequencies"]
+    # omega = np.sort(omega.flatten())
+    # logger.info(f"omega_phonopy_while_harmonic_prop = {omega}")
+    # imaginary = np.any(omega < -1e-3)
+    # logger.info(f"imaginary_phonopy_while_harmonic_prop = {imaginary}")
+    # n_imaginary = int(np.sum(omega < -np.abs(imaginary_tol)))
+    # logger.info(f"n_imaginary_phonopy_while_harmonic_prop = {n_imaginary}")
 
     if n_imaginary == 0:
         logger.info('No imaginary modes!')
@@ -1383,7 +1281,7 @@ def harmonic_properties(
         "entropy": entropy,
         "heat_capacity": heat_capacity,
         "n_imaginary": n_imaginary
-        }, phonopy
+        }, phonopy #phonon
 
 
 def anharmonic_properties(
@@ -1485,7 +1383,7 @@ def gruneisen(
         fcs2: np.ndarray,
         fcs3: np.ndarray,
         temperature: List,
-        heat_capacity: np.ndarray, # in eV/K/atom
+        heat_capacity: np.ndarray, # in J/K/mol
         bulk_modulus: float = None # in GPa
 ) -> Tuple[List,List]:
 
@@ -1506,7 +1404,8 @@ def gruneisen(
         cte = None
         dLfrac = None
     else:
-        heat_capacity *= eV2J*phonopy.primitive.get_number_of_atoms() # eV/K/atom to J/K 
+        # heat_capacity *= eV2J*phonopy.primitive.get_number_of_atoms() # eV/K/atom to J/K
+        heat_capacity *= 1/sp.constants.Avogadro # J/K/mol to J/K  # to convert from J/K/atom multiply by phonopy.primitive.get_number_of_atoms()
         # Convert heat_capacity to an array if it's a scalar
         # heat_capacity = np.array([heat_capacity])
         logger.info(f"heat capacity = {heat_capacity}")
@@ -1702,6 +1601,7 @@ def run_fc_to_pdos(
     mesh_density = mesh_density if mesh_density else 100.0
 
     structure_data = loadfn(f"structure_data_{loop}.json")
+    # structure_data = loadfn(f"structure_data.json")
     structure = structure_data["structure"]
     structure_data["supercell_structure"]
     supercell_matrix = structure_data["supercell_matrix"]
@@ -1738,6 +1638,12 @@ def run_fc_to_pdos(
         )
         # following line is commented out only for testing purposes ends
         # pass
+
+    # convert uniform_bs to dict
+    uniform_bs_dict = uniform_bs.as_dict()
+
+    # dump uniform_bs_dict to file
+    dumpfn(uniform_bs_dict, "uniform_bs.json")
 
     return uniform_bs, lm_bs, dos, prev_dir_json_saver
 
@@ -1912,16 +1818,16 @@ def run_hiphive_renormalization(
         # FCS.write_to_shengBTE("FORCE_CONSTANTS_3RD_{temperature}", atoms, order=3, fc_tol=1e-4)
 
 
-        atoms = AseAtomsAdaptor.get_atoms(parent_structure)
-        supercell_atoms = AseAtomsAdaptor.get_atoms(supercell_structure)
-        # fcs.write_to_shengBTE("FORCE_CONSTANTS_3RD", atoms, order=3)
-        fcs_TD.write_to_phonopy("FORCE_CONSTANTS_2ND", format="text")
-        ForceConstants.write_to_phonopy(fcs_TD, "fc2.hdf5", "hdf5")
-        ForceConstants.write_to_phono3py(fcs_TD, "fc3.hdf5", "hdf5")
-        ### detour from hdf5
-        # supercell_atoms = phonopy_atoms_to_ase(phonopy.supercell)
-        FCS = ForceConstants.read_phono3py(supercell_atoms, "fc3.hdf5", order=3)
-        FCS.write_to_shengBTE("FORCE_CONSTANTS_3RD", atoms, order=3, fc_tol=1e-4)
+        # atoms = AseAtomsAdaptor.get_atoms(parent_structure)
+        # supercell_atoms = AseAtomsAdaptor.get_atoms(supercell_structure)
+        # # fcs.write_to_shengBTE("FORCE_CONSTANTS_3RD", atoms, order=3)
+        # fcs_TD.write_to_phonopy("FORCE_CONSTANTS_2ND", format="text")
+        # ForceConstants.write_to_phonopy(fcs_TD, "fc2.hdf5", "hdf5")
+        # ForceConstants.write_to_phono3py(fcs_TD, "fc3.hdf5", "hdf5")
+        # ### detour from hdf5
+        # # supercell_atoms = phonopy_atoms_to_ase(phonopy.supercell)
+        # FCS = ForceConstants.read_phono3py(supercell_atoms, "fc3.hdf5", order=3)
+        # FCS.write_to_shengBTE("FORCE_CONSTANTS_3RD", atoms, order=3, fc_tol=1e-4)
 
     dumpfn(TD_structure_data, "structure_data.json")
     dumpfn(TD_thermal_data, "thermal_data.json")
