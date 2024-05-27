@@ -52,7 +52,10 @@ forcefields = [
     "quippy-ase>=0.9.14",
 ]
 anharmonicphonons = [
-	"phono3py",
+    "phonopy>=2.21.0",
+	"hiphive @ git+https://gitlab.com/jsyony37/hiphive.git@personal#egg=hiphive",
+    "f90nml==1.4.4",
+    "spglib>=2.2.0",
 	"ase>=3.22.1",]
 docs = [
     "FireWorks==2.0.3",
@@ -96,7 +99,6 @@ strict = [
     "seekpath==2.1.0",
     "typing-extensions==4.10.0",
     "python-ulid==2.2.0",
-    "phono3py==2.5.1"
 ]
 
 [project.scripts]
