@@ -2,7 +2,7 @@
 
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from shutil import which
 from typing import Any, Optional, Union
@@ -18,6 +18,7 @@ from pymatgen.electronic_structure.dos import Dos
 from pymatgen.io.common import VolumetricData
 from pymatgen.io.cp2k.inputs import BasisFile, DataFile, PotentialFile
 from pymatgen.io.cp2k.outputs import Cp2kOutput, parse_energy_file
+from typing_extensions import Self
 
 from atomate2 import SETTINGS
 from atomate2.cp2k.schemas.calc_types import (
@@ -84,23 +85,23 @@ class CalculationInput(BaseModel):
 
     @field_validator("atomic_kind_info", mode="before")
     @classmethod
-    def remove_unnecessary(cls, atomic_kind_info) -> dict:
+    def remove_unnecessary(cls, atomic_kind_info: dict) -> dict:
         """Remove unnecessary entry from atomic_kind_info."""
-        for k in atomic_kind_info:
-            if "total_pseudopotential_energy" in atomic_kind_info[k]:
-                del atomic_kind_info[k]["total_pseudopotential_energy"]
+        for key in atomic_kind_info:
+            if "total_pseudopotential_energy" in atomic_kind_info[key]:
+                del atomic_kind_info[key]["total_pseudopotential_energy"]
         return atomic_kind_info
 
     @field_validator("dft", mode="before")
     @classmethod
-    def cleanup_dft(cls, dft) -> dict:
+    def cleanup_dft(cls, dft: dict) -> dict:
         """Convert UKS strings to UKS=True."""
         if any(v.upper() == "UKS" for v in dft.values()):
             dft["UKS"] = True
         return dft
 
     @classmethod
-    def from_cp2k_output(cls, output: Cp2kOutput) -> "CalculationInput":
+    def from_cp2k_output(cls, output: Cp2kOutput) -> Self:
         """Initialize from Cp2kOutput object."""
         return cls(
             structure=output.initial_structure,
@@ -117,9 +118,8 @@ class RunStatistics(BaseModel):
     total_time: float = Field(0, description="The total CPU time for this calculation")
 
     @classmethod
-    def from_cp2k_output(cls, output: Cp2kOutput) -> "RunStatistics":
-        """
-        Create a run statistics document from an CP2K Output object.
+    def from_cp2k_output(cls, output: Cp2kOutput) -> Self:
+        """Create a run statistics document from an CP2K Output object.
 
         Parameters
         ----------
@@ -186,9 +186,8 @@ class CalculationOutput(BaseModel):
         v_hartree: Optional[VolumetricData] = None,
         store_trajectory: bool = False,
         store_scf: bool = False,
-    ) -> "CalculationOutput":
-        """
-        Create a CP2K output document from CP2K outputs.
+    ) -> Self:
+        """Create a CP2K output document from CP2K outputs.
 
         Parameters
         ----------
@@ -302,9 +301,8 @@ class Calculation(BaseModel):
         store_volumetric_data: Optional[
             tuple[str]
         ] = SETTINGS.CP2K_STORE_VOLUMETRIC_DATA,
-    ) -> tuple["Calculation", dict[Cp2kObject, dict]]:
-        """
-        Create a CP2K calculation document from a directory and file paths.
+    ) -> tuple[Self, dict[Cp2kObject, dict]]:
+        """Create a CP2K calculation document from a directory and file paths.
 
         Parameters
         ----------
@@ -336,9 +334,9 @@ class Calculation(BaseModel):
               vbm, cbm, band_gap, is_metal and efermi rather than the full
               band structure object.
 
-        average_v_hartree
+        average_v_hartree : bool = True
             Whether to store the average of the V_HARTREE along the crystal axes.
-        run_bader
+        run_bader : bool = False
             Whether to run bader on the charge density.
         strip_dos_projections : bool
             Whether to strip the element and site projections from the density of
@@ -347,13 +345,13 @@ class Calculation(BaseModel):
         strip_bandstructure_projections : bool
             Whether to strip the element and site projections from the band structure.
             This can help reduce the size of DOS objects in systems with many atoms.
-        store_trajectory:
+        store_trajectory : bool = False
             Whether to store the ionic steps as a pmg trajectory object, which can be
             pushed, to a bson data store, instead of as a list od dicts. Useful for
             large trajectories.
-        store_scf:
+        store_scf : bool = False
             Whether to store the SCF convergence data.
-        store_volumetric_data
+        store_volumetric_data : tuple[str] | None = SETTINGS.CP2K_STORE_VOLUMETRIC_DATA
             Which volumetric files to store.
 
         Returns
@@ -366,7 +364,9 @@ class Calculation(BaseModel):
 
         volumetric_files = [] if volumetric_files is None else volumetric_files
         cp2k_output = Cp2kOutput(cp2k_output_file, auto_load=True)
-        completed_at = str(datetime.fromtimestamp(os.stat(cp2k_output_file).st_mtime))
+        completed_at = str(
+            datetime.fromtimestamp(os.stat(cp2k_output_file).st_mtime, tz=timezone.utc)
+        )
 
         output_file_paths = _get_output_file_paths(volumetric_files)
         cp2k_objects: dict[Cp2kObject, Any] = _get_volumetric_data(
@@ -394,9 +394,9 @@ class Calculation(BaseModel):
             # TODO vasp version calls bader_analysis_from_path but cp2k
             # cube files don't support that yet, do it manually
             bader = {
-                "min_dist": [d["min_dist"] for d in ba.data],
-                "charge": [d["charge"] for d in ba.data],
-                "atomic_volume": [d["atomic_vol"] for d in ba.data],
+                "min_dist": [dct["min_dist"] for dct in ba.data],
+                "charge": [dct["charge"] for dct in ba.data],
+                "atomic_volume": [dct["atomic_vol"] for dct in ba.data],
                 "vacuum_charge": ba.vacuum_charge,
                 "vacuum_volume": ba.vacuum_volume,
                 "reference_used": bool(ba.chgref_filename),
@@ -479,9 +479,7 @@ def _get_basis_and_potential_files(dir_name: Path) -> dict[Cp2kObject, DataFile]
     """
     data: dict[Cp2kObject, DataFile] = {}
     if Path.exists(dir_name / "BASIS"):
-        data[Cp2kObject.BASIS] = BasisFile.from_file(  # type: ignore[index]
-            str(dir_name / "BASIS")
-        )
+        data[Cp2kObject.BASIS] = BasisFile.from_file(str(dir_name / "BASIS"))  # type: ignore[index]
     if Path.exists(dir_name / "POTENTIAL"):
         data[Cp2kObject.POTENTIAL] = PotentialFile.from_file(  # type: ignore[index]
             str(dir_name / "POTENTIAL")

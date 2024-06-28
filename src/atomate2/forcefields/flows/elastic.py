@@ -45,6 +45,11 @@ class ElasticMaker(BaseElasticMaker):
     bulk_relax_maker : .ForceFieldRelaxMaker or None
         A maker to perform a tight relaxation on the bulk. Set to ``None`` to skip the
         bulk relaxation.
+    max_failed_deformations: int or float
+        Maximum number of deformations allowed to fail to proceed with the fitting
+        of the elastic tensor. If an int the absolute number of deformations. If
+        a float between 0 an 1 the maximum fraction of deformations. If None any
+        number of deformations allowed.
     elastic_relax_maker : .ForceFieldRelaxMaker
         Maker used to generate elastic relaxations.
     generate_elastic_deformations_kwargs : dict
@@ -69,12 +74,13 @@ class ElasticMaker(BaseElasticMaker):
             relax_cell=False, relax_kwargs={"fmax": 0.00001}
         )
     )  # constant volume relaxation
+    max_failed_deformations: int | float | None = None
     generate_elastic_deformations_kwargs: dict = field(default_factory=dict)
     fit_elastic_tensor_kwargs: dict = field(default_factory=dict)
     task_document_kwargs: dict = field(default_factory=dict)
 
     @property
-    def prev_calc_dir_argname(self):
+    def prev_calc_dir_argname(self) -> str | None:
         """Name of argument informing static maker of previous calculation directory.
 
         As this differs between different DFT codes (e.g., VASP, CP2K), it
@@ -83,4 +89,3 @@ class ElasticMaker(BaseElasticMaker):
         Note: this is only applicable if a relax_maker is specified; i.e., two
         calculations are performed for each ordering (relax -> static)
         """
-        return

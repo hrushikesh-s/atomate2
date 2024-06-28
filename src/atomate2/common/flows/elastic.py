@@ -7,7 +7,6 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from jobflow import Flow, Maker, OnMissing
-from pymatgen.symmetry.analyzer import SpacegroupAnalyzer
 
 from atomate2 import SETTINGS
 from atomate2.common.jobs.elastic import (
@@ -15,6 +14,7 @@ from atomate2.common.jobs.elastic import (
     generate_elastic_deformations,
     run_elastic_deformations,
 )
+from atomate2.common.jobs.utils import structure_to_conventional
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -60,6 +60,11 @@ class BaseElasticMaker(Maker, ABC):
         bulk relaxation.
     elastic_relax_maker : .BaseVaspMaker or .ForceFieldRelaxMaker
         Maker used to generate elastic relaxations.
+    max_failed_deformations: int or float
+        Maximum number of deformations allowed to fail to proceed with the fitting
+        of the elastic tensor. If an int the absolute number of deformations. If
+        a float between 0 an 1 the maximum fraction of deformations. If None any
+        number of deformations allowed.
     generate_elastic_deformations_kwargs : dict
         Keyword arguments passed to :obj:`generate_elastic_deformations`.
     fit_elastic_tensor_kwargs : dict
@@ -76,6 +81,7 @@ class BaseElasticMaker(Maker, ABC):
     elastic_relax_maker: BaseVaspMaker | ForceFieldRelaxMaker = (
         None  # constant volume optimization
     )
+    max_failed_deformations: int | float | None = None
     generate_elastic_deformations_kwargs: dict = field(default_factory=dict)
     fit_elastic_tensor_kwargs: dict = field(default_factory=dict)
     task_document_kwargs: dict = field(default_factory=dict)
@@ -87,14 +93,13 @@ class BaseElasticMaker(Maker, ABC):
         equilibrium_stress: Matrix3D = None,
         conventional: bool = False,
     ) -> Flow:
-        """
-        Make flow to calculate the elastic constant.
+        """Make flow to calculate the elastic constant.
 
         Parameters
         ----------
         structure : .Structure
             A pymatgen structure.
-        prev_vasp_dir : str or Path or None
+        prev_dir : str or Path or None
             A previous vasp calculation directory to use for copying outputs.
         equilibrium_stress : tuple of tuple of float
             The equilibrium stress of the (relaxed) structure, if known.
@@ -116,8 +121,9 @@ class BaseElasticMaker(Maker, ABC):
                 equilibrium_stress = bulk.output.output.stress
 
         if conventional:
-            sga = SpacegroupAnalyzer(structure, symprec=self.symprec)
-            structure = sga.get_conventional_standard_structure()
+            stc = structure_to_conventional(structure, self.symprec)
+            jobs.append(stc)
+            structure = stc.output
 
         deformations = generate_elastic_deformations(
             structure,
@@ -139,6 +145,7 @@ class BaseElasticMaker(Maker, ABC):
             equilibrium_stress=equilibrium_stress,
             order=self.order,
             symprec=self.symprec if self.sym_reduce else None,
+            max_failed_deformations=self.max_failed_deformations,
             **self.fit_elastic_tensor_kwargs,
             **self.task_document_kwargs,
         )
@@ -156,7 +163,7 @@ class BaseElasticMaker(Maker, ABC):
 
     @property
     @abstractmethod
-    def prev_calc_dir_argname(self):
+    def prev_calc_dir_argname(self) -> str:
         """Name of argument informing static maker of previous calculation directory.
 
         As this differs between different DFT codes (e.g., VASP, CP2K), it

@@ -103,12 +103,12 @@ def get_basis_infos(
     """
     # this logic enables handling of a flow or a simple maker
     try:
-        potcar_symbols = vasp_maker.static_maker.input_set_generator._get_potcar(
+        potcar_symbols = vasp_maker.static_maker.input_set_generator._get_potcar(  # noqa: SLF001
             structure=structure, potcar_spec=True
         )
 
     except AttributeError:
-        potcar_symbols = vasp_maker.input_set_generator._get_potcar(
+        potcar_symbols = vasp_maker.input_set_generator._get_potcar(  # noqa: SLF001
             structure=structure, potcar_spec=True
         )
 
@@ -120,14 +120,14 @@ def get_basis_infos(
         address_basis_file_min=address_min_basis,
     )
 
-    nband_list = []
+    n_band_list: list[int] = []
     for dict_for_basis in list_basis_dict:
         basis = [f"{key} {value}" for key, value in dict_for_basis.items()]
         lobsterin = Lobsterin(settingsdict={"basisfunctions": basis})
-        nbands = lobsterin._get_nbands(structure=structure)
-        nband_list.append(nbands)
+        n_bands = lobsterin._get_nbands(structure=structure)  # noqa: SLF001
+        n_band_list.append(n_bands)
 
-    return {"nbands": max(nband_list), "basis_dict": list_basis_dict}
+    return {"nbands": max(n_band_list), "basis_dict": list_basis_dict}
 
 
 @job
@@ -135,7 +135,7 @@ def update_user_incar_settings_maker(
     vasp_maker: BaseVaspMaker,
     nbands: int,
     structure: Structure,
-    prev_vasp_dir: Path | str,
+    prev_dir: Path | str,
 ) -> Response:
     """
     Update the INCAR settings of a maker.
@@ -143,13 +143,13 @@ def update_user_incar_settings_maker(
     Parameters
     ----------
     vasp_maker : .BaseVaspMaker
-        A maker for the static run with all parammeters
+        A maker for the static run with all parameters
         relevant for Lobster.
     nbands : int
         integer indicating the correct number of bands
     structure : .Structure
         Structure object.
-    prev_vasp_dir : Path or str
+    prev_dir : Path or str
         Path or string to vasp files.
 
     Returns
@@ -158,13 +158,13 @@ def update_user_incar_settings_maker(
         LobsterStaticMaker with correct number of bands.
     """
     vasp_maker = update_user_incar_settings(vasp_maker, {"NBANDS": nbands})
-    vasp_job = vasp_maker.make(structure=structure, prev_vasp_dir=prev_vasp_dir)
+    vasp_job = vasp_maker.make(structure=structure, prev_dir=prev_dir)
     return Response(replace=vasp_job)
 
 
 @job
 def get_lobster_jobs(
-    lobster_maker: LobsterMaker,
+    lobster_maker: LobsterMaker | None,
     basis_dict: dict,
     optimization_dir: Path | str,
     optimization_uuid: str,
@@ -176,7 +176,7 @@ def get_lobster_jobs(
 
     Parameters
     ----------
-    lobster_maker : .LobsterMaker
+    lobster_maker : .LobsterMaker or None
         maker for the Lobster jobs
     basis_dict : dict
         dict including basis set information.
@@ -205,16 +205,15 @@ def get_lobster_jobs(
         "lobster_task_documents": [],
     }
 
-    if lobster_maker is None:
-        lobster_maker = LobsterMaker()
+    lobster_maker = lobster_maker or LobsterMaker()
 
-    for i, basis in enumerate(basis_dict):
-        lobsterjob = lobster_maker.make(wavefunction_dir=static_dir, basis_dict=basis)
-        lobsterjob.append_name(f"_run_{i}")
-        outputs["lobster_uuids"].append(lobsterjob.output.uuid)
-        outputs["lobster_dirs"].append(lobsterjob.output.dir_name)
-        outputs["lobster_task_documents"].append(lobsterjob.output)
-        jobs.append(lobsterjob)
+    for idx, basis in enumerate(basis_dict):
+        lobster_job = lobster_maker.make(wavefunction_dir=static_dir, basis_dict=basis)
+        lobster_job.append_name(f"_run_{idx}")
+        outputs["lobster_uuids"].append(lobster_job.output.uuid)
+        outputs["lobster_dirs"].append(lobster_job.output.dir_name)
+        outputs["lobster_task_documents"].append(lobster_job.output)
+        jobs.append(lobster_job)
 
     flow = Flow(jobs, output=outputs)
     return Response(replace=flow)

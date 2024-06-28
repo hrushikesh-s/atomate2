@@ -1,13 +1,18 @@
 import os
+from datetime import datetime, timezone
 
+from jobflow import run_locally
+from pymatgen.core import Structure
 from pytest import approx, mark
+
+from atomate2.common.jobs.utils import (
+    retrieve_structure_from_materials_project,
+    structure_to_conventional,
+    structure_to_primitive,
+)
 
 
 def test_structure_to_primitive(si_structure):
-    from jobflow import run_locally
-
-    from atomate2.common.jobs.utils import structure_to_primitive
-
     job = structure_to_primitive(si_structure)
 
     responses = run_locally(job)
@@ -17,10 +22,6 @@ def test_structure_to_primitive(si_structure):
 
 
 def test_structure_to_conventional(si_structure):
-    from jobflow import run_locally
-
-    from atomate2.common.jobs.utils import structure_to_conventional
-
     job = structure_to_conventional(si_structure)
 
     responses = run_locally(job)
@@ -34,13 +35,6 @@ def test_structure_to_conventional(si_structure):
     reason="Materials Project API key not set in environment.",
 )
 def test_retrieve_structure_from_materials_project():
-    from datetime import datetime
-
-    from jobflow import run_locally
-    from pymatgen.core import Structure
-
-    from atomate2.common.jobs.utils import retrieve_structure_from_materials_project
-
     job = retrieve_structure_from_materials_project("mp-149")
 
     responses = run_locally(job)
@@ -50,7 +44,9 @@ def test_retrieve_structure_from_materials_project():
     assert isinstance(output, Structure)
 
     # test stored data is in expected format
-    datetime.strptime(stored_data["database_version"], "%Y.%m.%d")
+    datetime.strptime(stored_data["database_version"], "%Y.%m.%d").replace(
+        tzinfo=timezone.utc
+    )
     assert stored_data["task_id"].startswith("mp-")
 
     job = retrieve_structure_from_materials_project(

@@ -18,7 +18,7 @@ sys.path.insert(0, os.path.abspath("../../"))
 # -- Project information -----------------------------------------------------
 
 project = "atomate2"
-copyright = "2023, materialsproject"
+copyright = "2023, materialsproject"  # noqa: A001
 author = "Alex Ganose"
 
 # The short X.Y version
@@ -138,9 +138,8 @@ autodoc_pydantic_field_show_constraints = False
 
 # -- Options for HTML output -------------------------------------------------
 
-# The theme to use for HTML and HTML Help pages.  See the documentation for
+# The theme to use for HTML and HTML Help pages. See the documentation for
 # a list of builtin themes.
-#
 html_theme = "furo"
 html_theme_options = {
     "footer_icons": [

@@ -232,6 +232,12 @@ converted into a dynamical matrix. To correct for polarization effects, a correc
 dynamical matrix based on BORN charges can be performed. Finally, phonon densities of states,
 phonon band structures and thermodynamic properties are computed.
 
+```{warning}
+The current implementation of the workflow does not consider the initial magnetic moments
+for the determination of the symmetry of the structure; therefore, they are removed from the structure.
+```
+
+
 ```{note}
 It is heavily recommended to symmetrize the structure before passing it to
 this flow. Otherwise, a different space group might be detected and too
@@ -241,7 +247,7 @@ adjust them if necessary. The default might not be strict enough
 for your specific case.
 ```
 
-### Lobster
+### LOBSTER
 
 Perform bonding analysis with [LOBSTER](http://cohp.de/) and [LobsterPy](https://github.com/jageo/lobsterpy)
 
@@ -258,9 +264,16 @@ VASP_CMD: <<VASP_CMD>>
 LOBSTER_CMD: <<LOBSTER_CMD>>
 ```
 
+```{note}
+A LOBSTER workflow with settings compatible to LOBSTER database (Naik, A.A., et al. Sci Data 10, 610 (2023). https://doi.org/10.1038/s41597-023-02477-5 , currently being integrated into Materials Project) is also available now,
+which could be used by simply importing from atomate2.vasp.flows.mp > MPVaspLobsterMaker
+instead of VaspLobsterMaker. Rest of the things to execute the workflow stays same as
+shown below.
+```
+
 The corresponding flow could, for example, be started with the following code:
 
-```Python
+```py
 from jobflow import SETTINGS
 from jobflow import run_locally
 from pymatgen.core.structure import Structure
@@ -287,7 +300,7 @@ It is, however,  computationally very beneficial to define two different types o
 
 Specifically, you might want to change the `_fworker` for the LOBSTER runs and define a separate `lobster` worker within FireWorks:
 
-```python
+```py
 from fireworks import LaunchPad
 from jobflow.managers.fireworks import flow_to_workflow
 from pymatgen.core.structure import Structure
@@ -321,7 +334,7 @@ lpad.add_wf(wf)
 
 Outputs from the automatic analysis with LobsterPy can easily be extracted from the database and also plotted:
 
-```python
+```py
 from jobflow import SETTINGS
 from pymatgen.electronic_structure.cohp import Cohp
 from pymatgen.electronic_structure.plotter import CohpPlotter
@@ -339,7 +352,7 @@ result = store.query_one(
 )
 
 for number, (key, cohp) in enumerate(
-    result["output"]["lobsterpy_data"]["cohp_plot_data"].items()
+    result["output"]["lobsterpy_data"]["cohp_plot_data"]["data"].items()
 ):
     plotter = CohpPlotter()
     cohp = Cohp.from_dict(cohp)
@@ -347,13 +360,50 @@ for number, (key, cohp) in enumerate(
     plotter.save_plot(f"plots_all_bonds{number}.pdf")
 
 for number, (key, cohp) in enumerate(
-    result["output"]["lobsterpy_data_cation_anion"]["cohp_plot_data"].items()
+    result["output"]["lobsterpy_data_cation_anion"]["cohp_plot_data"]["data"].items()
 ):
     plotter = CohpPlotter()
     cohp = Cohp.from_dict(cohp)
     plotter.add_cohp(key, cohp)
     plotter.save_plot(f"plots_cation_anion_bonds{number}.pdf")
 ```
+#### Running the LOBSTER workflow without database and with one job script only
+
+It is also possible to run the VASP-LOBSTER workflow with a minimal setup.
+In this case, you will run the VASP calculations on the same node as the LOBSTER calculations.
+In between, the different computations you will switch from MPI to OpenMP parallelization.
+
+For example, for a node with 48 cores, you could use an adapted version of the following SLURM script:
+
+```bash
+#!/bin/bash
+#SBATCH -J vasplobsterjob
+#SBATCH -o ./%x.%j.out
+#SBATCH -e ./%x.%j.err
+#SBATCH -D ./
+#SBATCH --mail-type=END
+#SBATCH --mail-user=you@you.de
+#SBATCH --time=24:00:00
+#SBATCH --nodes=1
+#This needs to be adapted if you run with different cores
+#SBATCH --ntasks=48
+
+# ensure you load the modules to run VASP, e.g., module load vasp
+module load my_vasp_module
+# please activate the required conda environment
+conda activate my_environment
+cd my_folder
+# the following script needs to contain the workflow
+python xyz.py
+```
+
+The `LOBSTER_CMD` now needs an additional export of the number of threads.
+
+```yaml
+VASP_CMD: <<VASP_CMD>>
+LOBSTER_CMD: OMP_NUM_THREADS=48 <<LOBSTER_CMD>>
+```
+
 
 (modifying_input_sets)=
 Modifying input sets
@@ -363,7 +413,7 @@ The inputs for a calculation can be modified in several ways. Every VASP job
 takes a {obj}`.VaspInputGenerator` as an argument (`input_set_generator`). One
 option is to specify an alternative input set generator:
 
-```python
+```py
 from atomate2.vasp.sets.core import StaticSetGenerator
 from atomate2.vasp.jobs.core import StaticMaker
 
@@ -382,7 +432,7 @@ The second approach is to edit the job after it has been made. All VASP jobs hav
 the `input_set_generator` attribute maker will update the input set that gets
 written:
 
-```python
+```py
 static_job.maker.input_set_generator.user_incar_settings["LOPTICS"] = True
 ```
 
@@ -392,7 +442,7 @@ functions called "powerups" that can apply settings updates to all VASP jobs in 
 These powerups also contain filters for the name of the job and the maker used to
 generate them.
 
-```python
+```py
 from atomate2.vasp.powerups import update_user_incar_settings
 from atomate2.vasp.flows.elastic import ElasticMaker
 from atomate2.vasp.flows.core import DoubleRelaxMaker
@@ -469,7 +519,7 @@ All VASP workflows are constructed using the `Maker.make()` function. The argume
 for this function always include:
 
 - `structure`: A pymatgen structure.
-- `prev_vasp_dir`: A previous VASP directory to copy output files from.
+- `prev_dir`: A previous VASP directory to copy output files from.
 
 There are two options when chaining workflows:
 
@@ -480,12 +530,12 @@ There are two options when chaining workflows:
    set KSPACING), and the magnetic moments. Some workflows will also use other outputs.
    For example, the Band Structure workflow will copy the CHGCAR file (charge
    density) from the previous calculation. This can be achieved by setting both the
-   `structure` and `prev_vasp_dir` arguments.
+   `structure` and `prev_dir` arguments.
 
 These two examples are illustrated in the code below, where we chain a relaxation
 calculation and a static calculation.
 
-```python
+```py
 from jobflow import Flow
 from atomate2.vasp.jobs.core import RelaxMaker, StaticMaker
 from pymatgen.core.structure import Structure
@@ -500,7 +550,7 @@ static_job = StaticMaker().make(structure=relax_job.output.structure)
 
 # create a static job that will use additional outputs from the relaxation
 static_job = StaticMaker().make(
-    structure=relax_job.output.structure, prev_vasp_dir=relax_job.output.dir_name
+    structure=relax_job.output.structure, prev_dir=relax_job.output.dir_name
 )
 
 # create a flow including the two jobs and set the output to be that of the static

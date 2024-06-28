@@ -1,16 +1,24 @@
 from typing import TYPE_CHECKING
 
+import numpy as np
+from jobflow import JobStore, run_locally
+from maggma.stores.mongolike import MemoryStore
+from pymatgen.analysis.defects.generators import SubstitutionGenerator
+from pymatgen.core import Structure
+from pymatgen.io.vasp.outputs import WSWQ
+
+from atomate2.vasp.flows.defect import (
+    ConfigurationCoordinateMaker,
+    FormationEnergyMaker,
+    NonRadiativeMaker,
+)
+
 if TYPE_CHECKING:
     from atomate2.common.schemas.defects import CCDDocument
     from atomate2.vasp.schemas.defect import FiniteDifferenceDocument
 
 
 def test_ccd_maker(mock_vasp, clean_dir, test_dir):
-    from jobflow import run_locally
-    from pymatgen.core import Structure
-
-    from atomate2.vasp.flows.defect import ConfigurationCoordinateMaker
-
     # mapping from job name to directory containing test files
     # mapping from job name to directory containing test files
     ref_paths = {
@@ -29,7 +37,7 @@ def test_ccd_maker(mock_vasp, clean_dir, test_dir):
         "finite diff q1": "Si_config_coord/finite_diff_q1",
         "finite diff q2": "Si_config_coord/finite_diff_q2",
     }
-    fake_run_vasp_kwargs = {k: {"incar_settings": ["ISIF"]} for k in ref_paths}
+    fake_run_vasp_kwargs = {path: {"incar_settings": ["ISIF"]} for path in ref_paths}
 
     # automatically use fake VASP and write POTCAR.spec during the test
     mock_vasp(ref_paths, fake_run_vasp_kwargs)
@@ -57,17 +65,6 @@ def test_ccd_maker(mock_vasp, clean_dir, test_dir):
 
 
 def test_nonrad_maker(mock_vasp, clean_dir, test_dir, monkeypatch):
-    import numpy as np
-    from jobflow import JobStore, run_locally
-    from maggma.stores.mongolike import MemoryStore
-    from pymatgen.core import Structure
-    from pymatgen.io.vasp.outputs import WSWQ
-
-    from atomate2.vasp.flows.defect import (
-        ConfigurationCoordinateMaker,
-        NonRadiativeMaker,
-    )
-
     # mapping from job name to directory containing test files
     ref_paths = {
         "relax q1": "Si_config_coord/relax_q1",
@@ -85,7 +82,7 @@ def test_nonrad_maker(mock_vasp, clean_dir, test_dir, monkeypatch):
         "finite diff q1": "Si_config_coord/finite_diff_q1",
         "finite diff q2": "Si_config_coord/finite_diff_q2",
     }
-    fake_run_vasp_kwargs = {k: {"incar_settings": ["ISIF"]} for k in ref_paths}
+    fake_run_vasp_kwargs = {path: {"incar_settings": ["ISIF"]} for path in ref_paths}
 
     # automatically use fake VASP and write POTCAR.spec during the test
     mock_vasp(ref_paths, fake_run_vasp_kwargs)
@@ -132,10 +129,6 @@ def test_nonrad_maker(mock_vasp, clean_dir, test_dir, monkeypatch):
 
 def test_formation_energy_maker(mock_vasp, clean_dir, test_dir, monkeypatch):
     from jobflow import SETTINGS, run_locally
-    from pymatgen.analysis.defects.generators import SubstitutionGenerator
-    from pymatgen.core import Structure
-
-    from atomate2.vasp.flows.defect import FormationEnergyMaker
 
     # mapping from job name to directory containing test files
     ref_paths = {
@@ -147,20 +140,20 @@ def test_formation_energy_maker(mock_vasp, clean_dir, test_dir, monkeypatch):
     }
 
     fake_run_vasp_kwargs = {
-        k: {"incar_settings": ["ISIF"], "check_inputs": ["incar"]} for k in ref_paths
+        path: {"incar_settings": ["ISIF"], "check_inputs": ["incar"]}
+        for path in ref_paths
     }
 
     # automatically use fake VASP and write POTCAR.spec during the test
     mock_vasp(ref_paths, fake_run_vasp_kwargs)
 
-    struct_GaN = Structure.from_file(test_dir / "structures" / "GaN.cif")
+    struct = Structure.from_file(test_dir / "structures" / "GaN.cif")
     defects = list(
         SubstitutionGenerator().get_defects(
-            structure=struct_GaN, substitution={"Ga": ["Mg"]}
+            structure=struct, substitution={"Ga": ["Mg"]}
         )
     )
 
-    # rmaker = RelaxMaker(input_set_generator=ChargeStateRelaxSetGenerator())
     maker = FormationEnergyMaker(
         relax_radius="auto",
         perturb=0.1,
@@ -185,5 +178,10 @@ def test_formation_energy_maker(mock_vasp, clean_dir, test_dir, monkeypatch):
         plnr_locpot = job["output"]["calcs_reversed"][0]["output"]["locpot"]
         assert set(plnr_locpot) == {"0", "1", "2"}
 
-    for k in ref_paths:
-        _check_plnr_locpot(k)
+    for path in ref_paths:
+        _check_plnr_locpot(path)
+
+    # make sure the the you can restart the calculation from prv
+    prv_dir = test_dir / "vasp/GaN_Mg_defect/bulk_relax/outputs"
+    flow2 = maker.make(defects[0], bulk_supercell_dir=prv_dir, defect_index=0)
+    _ = run_locally(flow2, create_folders=True, ensure_success=True)

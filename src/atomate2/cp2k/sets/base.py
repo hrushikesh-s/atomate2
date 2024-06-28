@@ -5,13 +5,13 @@ from __future__ import annotations
 import os
 from copy import deepcopy
 from dataclasses import dataclass, field
+from importlib.resources import files as get_mod_path
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 from monty.io import zopen
 from monty.serialization import loadfn
-from pkg_resources import resource_filename
 from pymatgen.core.structure import Molecule, Structure
 from pymatgen.io.core import InputGenerator, InputSet
 from pymatgen.io.cp2k.inputs import (
@@ -29,8 +29,8 @@ from pymatgen.symmetry.bandstructure import HighSymmKpath
 
 from atomate2 import SETTINGS
 
-_BASE_CP2K_SET = loadfn(resource_filename("atomate2.cp2k.sets", "BaseCp2kSet.yaml"))
-_BASE_GAPW_SET = loadfn(resource_filename("atomate2.cp2k.sets", "BaseAllSet.yaml"))
+_BASE_CP2K_SET = loadfn(get_mod_path("atomate2.cp2k.sets") / "BaseCp2kSet.yaml")
+_BASE_GAPW_SET = loadfn(get_mod_path("atomate2.cp2k.sets") / "BaseAllSet.yaml")
 
 
 class Cp2kInputSet(InputSet):
@@ -41,8 +41,7 @@ class Cp2kInputSet(InputSet):
         cp2k_input: Cp2kInput,
         optional_files: dict | None = None,
     ) -> None:
-        """
-        Initialize the set.
+        """Initialize the set.
 
         Parameters
         ----------
@@ -72,9 +71,7 @@ class Cp2kInputSet(InputSet):
                     structure definition to an external file in order to keep the main
                     input file neat. This use case requires "@include" parameters (see
                     pymatgen.io.cp2k or the cp2k manual)
-                (3) Other custom data files like vdw kernel tables, truncated coulomb
-                    tables, classical MD potential parameters.
-
+                (3) Other custom data files like vdw kernel tables, truncated coulomb.
         """
         self.cp2k_input = cp2k_input
         self.optional_files = optional_files or {}
@@ -85,8 +82,7 @@ class Cp2kInputSet(InputSet):
         make_dir: bool = True,
         overwrite: bool = True,
     ) -> None:
-        """
-        Write Cp2k input file to a directory.
+        """Write Cp2k input file to a directory.
 
         Parameters
         ----------
@@ -106,21 +102,20 @@ class Cp2kInputSet(InputSet):
         }
         inputs.update(self.optional_files)
 
-        for k, v in inputs.items():
-            fn = v.get("filename")
-            obj = v.get("object")
-            if v is not None and (overwrite or not (directory / k).exists()):
-                with zopen(directory / fn, "wt") as f:
-                    f.write(str(obj))
-            elif not overwrite and (directory / fn).exists():
-                raise FileExistsError(f"{directory / fn} already exists.")
+        for key, val in inputs.items():
+            filename = val.get("filename")
+            obj = val.get("object")
+            if val is not None and (overwrite or not (directory / key).exists()):
+                with zopen(directory / filename, "wt") as file:
+                    file.write(str(obj))
+            elif not overwrite and (directory / filename).exists():
+                raise FileExistsError(f"{directory / filename} already exists.")
 
     @staticmethod
     def from_directory(
         directory: str | Path, optional_files: dict = None
     ) -> Cp2kInputSet:
-        """
-        Load a set of CP2K inputs from a directory.
+        """Load a set of CP2K inputs from a directory.
 
         Parameters
         ----------
@@ -135,7 +130,7 @@ class Cp2kInputSet(InputSet):
             cp2k_input = Cp2kInput.from_file(directory / "cp2k.inp")
         else:
             raise FileNotFoundError
-        optional_files = optional_files if optional_files else {}
+        optional_files = optional_files or {}
         optional = {}
         for filename, obj in optional_files.items():
             optional[filename] = {
@@ -148,14 +143,7 @@ class Cp2kInputSet(InputSet):
     # TODO Validation
     @property
     def is_valid(self) -> bool:
-        """
-        Whether the input set is valid.
-
-        Returns
-        -------
-        bool
-            Whether the input set is valid.
-        """
+        """Whether the input set is valid."""
         return True
 
 
@@ -196,8 +184,7 @@ class Cp2kInputGenerator(InputGenerator):
         prev_dir: str | Path = None,
         optional_files: dict | None = None,
     ) -> Cp2kInputSet:
-        """
-        Get a CP2K input set.
+        """Get a CP2K input set.
 
         Note, if both ``structure`` and ``prev_dir`` are set, then the structure
         specified will be preferred over the final structure from the last CP2K run.
@@ -216,7 +203,7 @@ class Cp2kInputGenerator(InputGenerator):
         Cp2kInput
             A Cp2k input set.
         """
-        structure, prev_input, cp2k_output = self._get_previous(structure, prev_dir)
+        structure, prev_input, _cp2k_output = self._get_previous(structure, prev_dir)
 
         input_updates = self.get_input_updates(
             structure,
@@ -237,7 +224,7 @@ class Cp2kInputGenerator(InputGenerator):
             prev_input,
             input_updates,
         )
-        optional_files = optional_files if optional_files else {}
+        optional_files = optional_files or {}
         optional_files["basis"] = {
             "filename": "BASIS",
             "object": self._get_basis_file(cp2k_input=cp2k_input),
@@ -250,8 +237,7 @@ class Cp2kInputGenerator(InputGenerator):
         return Cp2kInputSet(cp2k_input=cp2k_input, optional_files=optional_files)
 
     def get_input_updates(self, structure: Structure, prev_input: Cp2kInput) -> dict:
-        """
-        Get updates to the cp2k input for this calculation type.
+        """Get updates to the cp2k input for this calculation type.
 
         Parameters
         ----------
@@ -274,8 +260,7 @@ class Cp2kInputGenerator(InputGenerator):
     def get_kpoints_updates(
         self, structure: Structure, prev_input: Cp2kInput = None
     ) -> dict:
-        """
-        Get updates to the kpoints configuration for this calculation type.
+        """Get updates to the kpoints configuration for this calculation type.
 
         Note, these updates will be ignored if the user has set user_kpoint_settings.
 
@@ -302,7 +287,7 @@ class Cp2kInputGenerator(InputGenerator):
     ) -> tuple[Structure, Cp2kInput, Cp2kOutput]:
         """Load previous calculation outputs and decide which structure to use."""
         if structure is None and prev_dir is None:
-            raise ValueError("Either structure or prev_dir must be set.")
+            raise ValueError("Either structure or prev_dir must be set")
 
         prev_input = {}
         prev_structure = None
@@ -317,7 +302,7 @@ class Cp2kInputGenerator(InputGenerator):
 
         return structure, prev_input, cp2k_output
 
-    def _get_structure(self, structure) -> Structure:
+    def _get_structure(self, structure: Structure) -> Structure:
         """Get the standardized structure."""
         if self.sort_structure and hasattr(structure, "get_sorted_structure"):
             structure = structure.get_sorted_structure()
@@ -360,8 +345,7 @@ class Cp2kInputGenerator(InputGenerator):
         return cp2k_input
 
     def _get_basis_file(self, cp2k_input: Cp2kInput) -> BasisFile:
-        """
-        Get the basis sets for the input object and convert them to a basis file object.
+        """Get input object's basis sets and convert them to a basis file object.
 
         Allows calculation to execute if the basis sets are not available on the
         execution resource.
@@ -377,8 +361,7 @@ class Cp2kInputGenerator(InputGenerator):
         return BasisFile(objects=basis_sets)
 
     def _get_potential_file(self, cp2k_input: Cp2kInput) -> PotentialFile:
-        """
-        Get the potentials and convert them to a potential file object.
+        """Get the potentials and convert them to a potential file object.
 
         Allows calculation to execute if the potentials are not available on the
         execution resource.
@@ -405,37 +388,37 @@ class Cp2kInputGenerator(InputGenerator):
 
         # use user setting if set otherwise default to base config settings
         if self.user_kpoints_settings != {}:
-            kconfig = deepcopy(self.user_kpoints_settings)
+            kpt_config = deepcopy(self.user_kpoints_settings)
         else:
             # apply updates to k-points config
-            kconfig = deepcopy(self.config_dict.get("KPOINTS", {}))
-            kconfig.update(kpoints_updates)
+            kpt_config = deepcopy(self.config_dict.get("KPOINTS", {}))
+            kpt_config.update(kpoints_updates)
 
-        if isinstance(kconfig, Kpoints):
-            return kconfig
+        if isinstance(kpt_config, Kpoints):
+            return kpt_config
 
         explicit = (
-            kconfig.get("explicit", False)
-            or len(kconfig.get("added_kpoints", [])) > 0
-            or "zero_weighted_reciprocal_density" in kconfig
-            or "zero_weighted_line_density" in kconfig
+            kpt_config.get("explicit")
+            or len(kpt_config.get("added_kpoints", [])) > 0
+            or "zero_weighted_reciprocal_density" in kpt_config
+            or "zero_weighted_line_density" in kpt_config
         )
         # handle length generation first as this doesn't support any additional options
-        if kconfig.get("length"):
+        if kpt_config.get("length"):
             if explicit:
                 raise ValueError(
                     "length option cannot be used with explicit k-point generation, "
                     "added_kpoints, or zero weighted k-points."
                 )
             # If length is in kpoints settings use Kpoints.automatic
-            return Kpoints.automatic(kconfig["length"])
+            return Kpoints.automatic(kpt_config["length"])
 
         base_kpoints = None
-        if kconfig.get("line_density"):
+        if kpt_config.get("line_density"):
             # handle line density generation
-            kpath = HighSymmKpath(structure, **kconfig.get("kpath_kwargs", {}))
+            kpath = HighSymmKpath(structure, **kpt_config.get("kpath_kwargs", {}))
             frac_k_points, k_points_labels = kpath.get_kpoints(
-                line_density=kconfig["line_density"], coords_are_cartesian=False
+                line_density=kpt_config["line_density"], coords_are_cartesian=False
             )
             base_kpoints = Kpoints(
                 comment="Non SCF run along symmetry lines",
@@ -445,15 +428,15 @@ class Cp2kInputGenerator(InputGenerator):
                 labels=k_points_labels,
                 kpts_weights=[1] * len(frac_k_points),
             )
-        elif kconfig.get("grid_density") or kconfig.get("reciprocal_density"):
+        elif kpt_config.get("grid_density") or kpt_config.get("reciprocal_density"):
             # handle regular weighted k-point grid generation
-            if kconfig.get("grid_density"):
+            if kpt_config.get("grid_density"):
                 base_kpoints = Kpoints.automatic_density(
-                    structure, int(kconfig["grid_density"]), self.force_gamma
+                    structure, int(kpt_config["grid_density"]), self.force_gamma
                 )
-            if kconfig.get("reciprocal_density"):
+            if kpt_config.get("reciprocal_density"):
                 base_kpoints = Kpoints.automatic_density_by_vol(
-                    structure, kconfig["reciprocal_density"], self.force_gamma
+                    structure, kpt_config["reciprocal_density"], self.force_gamma
                 )
             if explicit:
                 sga = SpacegroupAnalyzer(structure, symprec=self.symprec)
@@ -471,11 +454,11 @@ class Cp2kInputGenerator(InputGenerator):
                 return base_kpoints
 
         zero_weighted_kpoints = None
-        if kconfig.get("zero_weighted_line_density"):
+        if kpt_config.get("zero_weighted_line_density"):
             # zero_weighted k-points along line mode path
             kpath = HighSymmKpath(structure)
             frac_k_points, k_points_labels = kpath.get_kpoints(
-                line_density=kconfig["zero_weighted_line_density"],
+                line_density=kpt_config["zero_weighted_line_density"],
                 coords_are_cartesian=False,
             )
             zero_weighted_kpoints = Kpoints(
@@ -486,9 +469,11 @@ class Cp2kInputGenerator(InputGenerator):
                 labels=k_points_labels,
                 kpts_weights=[0] * len(frac_k_points),
             )
-        elif kconfig.get("zero_weighted_reciprocal_density"):
+        elif kpt_config.get("zero_weighted_reciprocal_density"):
             zero_weighted_kpoints = Kpoints.automatic_density_by_vol(
-                structure, kconfig["zero_weighted_reciprocal_density"], self.force_gamma
+                structure,
+                kpt_config["zero_weighted_reciprocal_density"],
+                self.force_gamma,
             )
             sga = SpacegroupAnalyzer(structure, symprec=self.symprec)
             mesh = sga.get_ir_reciprocal_mesh(zero_weighted_kpoints.kpts[0])
@@ -501,14 +486,14 @@ class Cp2kInputGenerator(InputGenerator):
             )
 
         added_kpoints = None
-        if kconfig.get("added_kpoints"):
+        if kpt_config.get("added_kpoints"):
             added_kpoints = Kpoints(
                 comment="Specified k-points only",
                 style=Kpoints.supported_modes.Reciprocal,
-                num_kpts=len(kconfig.get("added_kpoints")),
-                kpts=kconfig.get("added_kpoints"),
-                labels=["user-defined"] * len(kconfig.get("added_kpoints")),
-                kpts_weights=[0] * len(kconfig.get("added_kpoints")),
+                num_kpts=len(kpt_config.get("added_kpoints")),
+                kpts=kpt_config.get("added_kpoints"),
+                labels=["user-defined"] * len(kpt_config.get("added_kpoints")),
+                kpts_weights=[0] * len(kpt_config.get("added_kpoints")),
             )
 
         if base_kpoints and not (added_kpoints or zero_weighted_kpoints):
@@ -517,7 +502,7 @@ class Cp2kInputGenerator(InputGenerator):
             return added_kpoints
 
         # do some sanity checking
-        if "line_density" in kconfig and zero_weighted_kpoints:
+        if "line_density" in kpt_config and zero_weighted_kpoints:
             raise ValueError(
                 "Cannot combined line_density and zero weighted k-points options"
             )
@@ -542,7 +527,7 @@ def _combine_kpoints(*kpoints_objects: Kpoints) -> Kpoints:
     weights = []
 
     for kpoints_object in filter(None, kpoints_objects):
-        if not kpoints_object.style == Kpoints.supported_modes.Reciprocal:
+        if kpoints_object.style != Kpoints.supported_modes.Reciprocal:
             raise ValueError(
                 "Can only combine kpoints with style=Kpoints.supported_modes.Reciprocal"
             )

@@ -1,8 +1,9 @@
 """Tools for remote file IO using paramiko."""
 
-
 from __future__ import annotations
 
+import errno
+import os
 import shutil
 import stat
 import warnings
@@ -10,11 +11,14 @@ from functools import wraps
 from glob import glob
 from gzip import GzipFile
 from pathlib import Path
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable
 
 import paramiko
 from monty.io import zopen
 from paramiko import SFTPClient, SSHClient
+
+if TYPE_CHECKING:
+    from types import TracebackType
 
 
 class FileClient:
@@ -74,8 +78,7 @@ class FileClient:
         self.connections[host] = {"ssh": ssh, "sftp": ssh.open_sftp()}
 
     def get_ssh(self, host: str) -> SSHClient:
-        """
-        Get an SSH connection to a host.
+        """Get an SSH connection to a host.
 
         Parameters
         ----------
@@ -95,8 +98,7 @@ class FileClient:
         return self.connections[host]["ssh"]
 
     def get_sftp(self, host: str) -> SFTPClient:
-        """
-        Get an SFTP connection to a host.
+        """Get an SFTP connection to a host.
 
         Parameters
         ----------
@@ -136,13 +138,12 @@ class FileClient:
         path = str(self.abspath(path, host=host))
         try:
             self.get_sftp(host).stat(path)
-            return True
         except FileNotFoundError:
             return False
+        return True
 
     def is_file(self, path: str | Path, host: str | None = None) -> bool:
-        """
-        Whether a path is a file.
+        """Whether a path is a file.
 
         Parameters
         ----------
@@ -165,8 +166,7 @@ class FileClient:
             return False
 
     def is_dir(self, path: str | Path, host: str | None = None) -> bool:
-        """
-        Whether a path is a directory.
+        """Whether a path is a directory.
 
         Parameters
         ----------
@@ -189,8 +189,7 @@ class FileClient:
             return False
 
     def listdir(self, path: str | Path, host: str | None = None) -> list[Path]:
-        """
-        Get the directory listing.
+        """Get the directory listing.
 
         Parameters
         ----------
@@ -257,6 +256,30 @@ class FileClient:
                 "Copying between two different remote hosts is not supported."
             )
 
+    def link(
+        self,
+        src_filename: str | Path,
+        dest_filename: str | Path,
+    ) -> None:
+        """
+        Link a file from source to destination.
+
+        Parameters
+        ----------
+        src_filename : str or Path
+            Full path to source file.
+        dest_filename : str or Path
+            Full path to destination file.
+        """
+        try:
+            os.symlink(src_filename, dest_filename)
+        except OSError as exc:
+            if exc.errno == errno.EEXIST:
+                os.remove(dest_filename)
+                os.symlink(src_filename, dest_filename)
+            else:
+                raise
+
     def remove(self, path: str | Path, host: str | None = None) -> None:
         """
         Remove a file (does not work on directories).
@@ -300,8 +323,7 @@ class FileClient:
             self.get_sftp(host).rename(old_path, new_path)
 
     def abspath(self, path: str | Path, host: str | None = None) -> Path:
-        """
-        Get the absolute path.
+        """Get the absolute path.
 
         Parameters
         ----------
@@ -400,15 +422,16 @@ class FileClient:
                 )
 
         if host is None:
-            with open(path, "rb") as f_in, GzipFile(
-                path_gz, "wb", compresslevel=compresslevel
-            ) as f_out:
+            with (
+                open(path, "rb") as f_in,
+                GzipFile(path_gz, "wb", compresslevel=compresslevel) as f_out,
+            ):
                 shutil.copyfileobj(f_in, f_out)
             shutil.copystat(path, path_gz)
             path.unlink()
         else:
             ssh = self.get_ssh(host)
-            _, stdout, _ = ssh.exec_command(f"gzip -f {path!s}")
+            _, _stdout, _ = ssh.exec_command(f"gzip -f {path!s}")
 
     def gunzip(
         self,
@@ -462,7 +485,7 @@ class FileClient:
             path.unlink()
         else:
             ssh = self.get_ssh(host)
-            _, stdout, _ = ssh.exec_command(f"gunzip -f {path!s}")
+            _stdin, _stdout, _stderr = ssh.exec_command(f"gunzip -f {path!s}")
 
     def close(self) -> None:
         """Close all connections."""
@@ -471,11 +494,16 @@ class FileClient:
             connection["sftp"].close()
         self.connections = {}
 
-    def __enter__(self):
+    def __enter__(self) -> FileClient:  # noqa: PYI034
         """Support for "with" context."""
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> None:
         """Support for "with" context."""
         self.close()
 
@@ -518,9 +546,9 @@ def get_ssh_connection(
         ssh_config = paramiko.SSHConfig().from_path(str(config_filename))
 
         host_config = ssh_config.lookup(hostname)  # type: ignore[attr-defined]
-        for k in ("hostname", "user", "port"):
-            if k in host_config:
-                config[k.replace("user", "username")] = host_config[k]
+        for key in ("hostname", "user", "port"):
+            if key in host_config:
+                config[key.replace("user", "username")] = host_config[key]
 
         if "proxycommand" in host_config:
             config["sock"] = paramiko.ProxyCommand(host_config["proxycommand"])
@@ -531,7 +559,7 @@ def get_ssh_connection(
     return client
 
 
-def auto_fileclient(method: Callable | None = None):
+def auto_fileclient(method: Callable | None = None) -> Callable:
     """
     Automatically pass a FileClient to the function if not already present in kwargs.
 
@@ -547,9 +575,9 @@ def auto_fileclient(method: Callable | None = None):
         by the decorator.
     """
 
-    def decorator(func):
+    def decorator(func: Callable) -> Callable:
         @wraps(func)
-        def gen_fileclient(*args, **kwargs):
+        def gen_file_client(*args, **kwargs) -> Any:
             file_client = kwargs.get("file_client")
             if file_client is None:
                 with FileClient() as file_client:
@@ -558,7 +586,7 @@ def auto_fileclient(method: Callable | None = None):
             else:
                 return func(*args, **kwargs)
 
-        return gen_fileclient
+        return gen_file_client
 
     # See if we're being called as @auto_fileclient or @auto_fileclient().
     if method is None:

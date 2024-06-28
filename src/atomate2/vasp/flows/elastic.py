@@ -49,6 +49,11 @@ class ElasticMaker(BaseElasticMaker):
         bulk relaxation.
     elastic_relax_maker : .BaseVaspMaker
         Maker used to generate elastic relaxations.
+    max_failed_deformations: int or float
+        Maximum number of deformations allowed to fail to proceed with the fitting
+        of the elastic tensor. If an int the absolute number of deformations. If
+        a float between 0 an 1 the maximum fraction of deformations. If None any
+        number of deformations allowed.
     generate_elastic_deformations_kwargs : dict
         Keyword arguments passed to :obj:`generate_elastic_deformations`.
     fit_elastic_tensor_kwargs : dict
@@ -65,12 +70,13 @@ class ElasticMaker(BaseElasticMaker):
         default_factory=lambda: DoubleRelaxMaker.from_relax_maker(TightRelaxMaker())
     )
     elastic_relax_maker: BaseVaspMaker = field(default_factory=ElasticRelaxMaker)
+    max_failed_deformations: int | float | None = None
     generate_elastic_deformations_kwargs: dict = field(default_factory=dict)
     fit_elastic_tensor_kwargs: dict = field(default_factory=dict)
     task_document_kwargs: dict = field(default_factory=dict)
 
     @property
-    def prev_calc_dir_argname(self):
+    def prev_calc_dir_argname(self) -> str:
         """Name of argument informing static maker of previous calculation directory.
 
         As this differs between different DFT codes (e.g., VASP, CP2K), it
@@ -79,4 +85,4 @@ class ElasticMaker(BaseElasticMaker):
         Note: this is only applicable if a relax_maker is specified; i.e., two
         calculations are performed for each ordering (relax -> static)
         """
-        return "prev_vasp_dir"
+        return "prev_dir"
