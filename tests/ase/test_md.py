@@ -98,17 +98,22 @@ def test_nvt_nose_hoover_chain(si_structure, clean_dir):
         maker.run_ase(si_structure)
 
 
-def test_langevin_seed(si_structure, clean_dir):
-    """mb_velocity_seed also seeds the random forces of the Langevin thermostat."""
+@pytest.mark.parametrize(
+    ("dynamics", "ase_md_kwargs"),
+    [("langevin", {}), ("andersen", {"andersen_prob": 0.5})],
+)
+def test_random_dynamics_seed(si_structure, clean_dir, dynamics, ase_md_kwargs):
+    """mb_velocity_seed also seeds the random numbers of Langevin and Andersen."""
     si_structure.add_site_property("velocities", [[0.0, 0.0, 0.0]] * len(si_structure))
 
     def positions(seed):
         maker = LennardJonesMDMaker(
             ensemble="nvt",
-            dynamics="langevin",
+            dynamics=dynamics,
             temperature=300,
             n_steps=5,
             mb_velocity_seed=seed,
+            ase_md_kwargs=dict(ase_md_kwargs),
         )
         return maker.run_ase(si_structure).final_mol_or_struct.cart_coords
 

@@ -157,8 +157,8 @@ class AseMDMaker(AseMaker, ABC):
         The step interval for saving the trajectories.
     mb_velocity_seed : int or None
         If an int, a random number seed for generating initial velocities
-        from a Maxwell-Boltzmann distribution. It also seeds the random forces
-        of dynamics that take an rng argument, such as Langevin.
+        from a Maxwell-Boltzmann distribution. It also seeds the random numbers
+        of dynamics that take an rng argument, such as Langevin and Andersen.
     zero_linear_momentum : bool = False
         Whether to initialize the atomic velocities with zero linear momentum
     zero_angular_momentum : bool = False
